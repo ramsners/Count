@@ -9,6 +9,8 @@ import {
   getSessionsForFridgeOnDate,
 } from '../lib/db';
 import { formatDateTime } from '../lib/units';
+import QRCode from 'qrcode';
+import { generateAccessCode, listAccessCodesForEvent, deleteAccessCode } from '../lib/accessCodes';
 
 export default function EventDetail() {
   const { eventId } = useParams();
@@ -17,6 +19,9 @@ export default function EventDetail() {
   const [fridges, setFridges] = useState([]);
   const [sessionCounts, setSessionCounts] = useState({});
   const [countTypeModal, setCountTypeModal] = useState(null);
+  const [accessCodes, setAccessCodes] = useState([]);
+  const [qrDataUrl, setQrDataUrl] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
 
   useEffect(() => {
     load();
@@ -33,6 +38,29 @@ export default function EventDetail() {
       counts[f.id] = sessions;
     }
     setSessionCounts(counts);
+    await loadAccessCodes();
+  }
+
+  async function loadAccessCodes() {
+    const codes = await listAccessCodesForEvent(Number(eventId));
+    setAccessCodes(codes);
+  }
+
+  async function createDayCode() {
+    setQrLoading(true);
+    try {
+      const today = new Date();
+      const validFrom = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+      const validUntil = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+      const code = await generateAccessCode(Number(eventId), validFrom, validUntil);
+      const appUrl = window.location.origin + window.location.pathname;
+      const accessUrl = `${appUrl}#/team/${code}`;
+      const dataUrl = await QRCode.toDataURL(accessUrl, { width: 300, margin: 2 });
+      setQrDataUrl(dataUrl);
+      await loadAccessCodes();
+    } finally {
+      setQrLoading(false);
+    }
   }
 
   async function createFridge(type) {
@@ -121,6 +149,32 @@ export default function EventDetail() {
             );
           })}
         </ul>
+      </div>
+      <div className="card">
+        <h2>Teamzugang (QR-Code)</h2>
+        <button className="btn-secondary" onClick={createDayCode} disabled={qrLoading}>
+          {qrLoading ? 'Erstelle...' : '+ Code für heute erstellen'}
+        </button>
+        {qrDataUrl && (
+          <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <img src={qrDataUrl} alt="QR-Code" style={{ maxWidth: 240 }} />
+            <p className="muted">Gültig heute bis Mitternacht. QR-Code abfotografieren.</p>
+          </div>
+        )}
+        {accessCodes.length > 0 && (
+          <ul className="product-list" style={{ marginTop: '1rem' }}>
+            {accessCodes.map((c) => (
+              <li key={c.id}>
+                <span className="muted">
+                  Gültig bis {new Date(c.validUntil).toLocaleString('de-AT')}
+                </span>
+                <button className="btn-link danger" onClick={async () => { await deleteAccessCode(c.id); loadAccessCodes(); }}>
+                  Löschen
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       {countTypeModal && (
         <div className="modal-overlay" onClick={() => setCountTypeModal(null)}>
