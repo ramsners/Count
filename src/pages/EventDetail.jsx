@@ -6,6 +6,7 @@ import {
   addFridge,
   deleteFridge,
   getSessionsForFridge,
+  getSessionsForFridgeOnDate,
 } from '../lib/db';
 import { formatDateTime } from '../lib/units';
 
@@ -43,6 +44,18 @@ export default function EventDetail() {
     if (confirm('Kühlgerät inkl. aller Zählungen löschen?')) {
       await deleteFridge(id);
       load();
+    }
+  }
+
+  async function startCounting(fridgeId, type) {
+    setCountTypeModal(null);
+    const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+    const todaysSessions = await getSessionsForFridgeOnDate(Number(fridgeId), today);
+    const existing = todaysSessions.find((s) => s.label === type);
+    if (existing) {
+      navigate(`/correct/${existing.id}/choose`);
+    } else {
+      navigate(`/count/${fridgeId}?type=${type}`);
     }
   }
 
@@ -116,19 +129,13 @@ export default function EventDetail() {
             <div className="row">
               <button
                 className="btn-primary big"
-                onClick={() => {
-                  setCountTypeModal(null);
-                  navigate(`/count/${countTypeModal}?type=Anfangsstand`);
-                }}
+                onClick={() => startCounting(countTypeModal, 'Anfangsstand')}
               >
                 Anfangsstand
               </button>
               <button
                 className="btn-secondary big"
-                onClick={() => {
-                  setCountTypeModal(null);
-                  navigate(`/count/${countTypeModal}?type=Endstand`);
-                }}
+                onClick={() => startCounting(countTypeModal, 'Endstand')}
               >
                 Endstand
               </button>

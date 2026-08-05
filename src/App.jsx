@@ -4,6 +4,7 @@ import Events from './pages/Events';
 import EventDetail from './pages/EventDetail';
 import Counting from './pages/Counting';
 import Summary from './pages/Summary';
+import Correction from './pages/Correction';
 
 function Nav() {
   const location = useLocation();
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="/event/:eventId" element={<EventDetail />} />
         <Route path="/count/:fridgeId" element={<Counting />} />
         <Route path="/summary/:sessionId" element={<Summary />} />
+        <Route path="/correct/:sessionId/:productId" element={<Correction />} />
       </Routes>
     </HashRouter>
   );
