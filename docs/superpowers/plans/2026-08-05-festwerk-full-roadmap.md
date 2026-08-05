@@ -1,0 +1,2168 @@
+# Festwerk Stand-App — Full Roadmap Implementierungsplan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Bestehenden lokalen MVP (IndexedDB) auf Supabase migrieren und dann alle geplanten Features (Auth, QR-Teamzugang, Anfangsstand/Endstand, Korrektur-Modus, Kühlgerät-Sperre, Foto-Dokumentation) implementieren.
+
+**Architecture:** Supabase übernimmt Postgres-Datenbank, Auth (Owner-Login), Storage (Fotos) und Realtime (Kühlgerät-Sperr-Anzeige). Die `src/lib/db.js` bleibt das einzige Interface zwischen React-Pages und Backend — alle Seitenkomponenten rufen weiterhin dieselben Funktionen auf, nur die Implementierung wechselt von IndexedDB zu Supabase. Neue Features (Auth, QR, Locks, Fotos) kommen als eigene Lib-Module und Pages dazu.
+
+**Tech Stack:** React 19 + Vite 8, Supabase JS Client v2, react-router-dom v7, qrcode (npm), Vitest + @testing-library/react (neu)
+
+## Global Constraints
+
+- Node/npm bereits installiert; kein eigener Server nötig — Supabase ist managed
+- Alle Texte/Labels auf Deutsch (österreichisch)
+- Keine TypeScript-Migration — bleibt JSX
+- `.env.local` für Supabase-Credentials (nie committen)
+- `VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY` sind die Env-Var-Namen
+- Supabase Row Level Security (RLS) aktivieren: Owner (authenticated) hat vollen Zugriff; QR-Zugang (anon + valid code) hat Lese+Zähl-Zugriff
+- ESM-Imports überall (kein CommonJS)
+- Keine breaking changes an bestehenden Seitenkomponenten ausser explizit angegeben
+
+---
+
+## Phasenübersicht
+
+| Phase | Thema | Voraussetzung |
+|-------|-------|--------------|
+| A | Supabase Setup + DB-Migration | — |
+| B | Anfangsstand/Endstand + Korrektur-Modus | Phase A |
+| C | Owner Auth + geschützte Routen | Phase A |
+| D | QR-Code Teamzugang | Phase C |
+| E | Kühlgerät-Sperrmechanismus (Realtime) | Phase A |
+| F | Foto-Dokumentation | Phase A |
+
+---
+
+## Phase A: Supabase Setup + DB-Migration
+
+### Task A1: Supabase-Projekt und Abhängigkeiten einrichten
+
+**Files:**
+- Create: `.env.local` (nie committen!)
+- Create: `.gitignore` (falls nicht vorhanden)
+- Modify: `package.json`
+- Create: `src/lib/supabase.js`
+
+**Interfaces:**
+- Produces: `supabase` (default export aus `src/lib/supabase.js`) — Supabase-Client-Instanz, wird in allen anderen Lib-Dateien importiert
+
+- [ ] **Step 1: Supabase npm-Paket + Vitest + Testing-Library installieren**
+
+```bash
+cd /Users/ramsners/Documents/GitHub/Count/Count
+npm install @supabase/supabase-js qrcode
+npm install --save-dev vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event jsdom
+```
+
+- [ ] **Step 2: Vitest in vite.config.js konfigurieren**
+
+Aktuelle `vite.config.js` lesen, dann so ergänzen:
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test-setup.js',
+  },
+});
+```
+
+- [ ] **Step 3: Test-Setup-Datei anlegen**
+
+```js
+// src/test-setup.js
+import '@testing-library/jest-dom';
+```
+
+- [ ] **Step 4: Vitest-Script in package.json eintragen**
+
+In `package.json` unter `"scripts"` hinzufügen:
+```json
+"test": "vitest run",
+"test:watch": "vitest"
+```
+
+- [ ] **Step 5: Supabase-Projekt anlegen (manuell im Browser)**
+
+1. https://supabase.com → New Project anlegen
+2. Projekt-Name: `festwerk-stand`
+3. Nach Erstellung: Settings → API → `URL` und `anon public key` kopieren
+
+- [ ] **Step 6: .env.local anlegen**
+
+```
+VITE_SUPABASE_URL=https://DEIN-PROJEKT.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...DEIN-ANON-KEY
+```
+
+- [ ] **Step 7: .gitignore prüfen/anlegen**
+
+Sicherstellen dass `.env.local` darin steht:
+```
+.env.local
+dist/
+node_modules/
+```
+
+- [ ] **Step 8: Supabase-Client-Modul anlegen**
+
+```js
+// src/lib/supabase.js
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
+
+export default supabase;
+```
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add package.json package-lock.json vite.config.js src/test-setup.js src/lib/supabase.js .gitignore
+git commit -m "chore: add Supabase client, Vitest + Testing Library"
+```
+
+---
+
+### Task A2: Datenbank-Schema in Supabase anlegen
+
+**Files:**
+- Create: `supabase/schema.sql` (Dokumentation, wird im Supabase SQL-Editor ausgeführt)
+
+**Interfaces:**
+- Produces: Tabellen `products`, `events`, `fridges`, `sessions`, `fridge_locks`, `session_photos`, `event_access_codes` in Supabase Postgres
+
+- [ ] **Step 1: Schema-Datei anlegen**
+
+```sql
+-- supabase/schema.sql
+-- Im Supabase SQL-Editor unter: Project → SQL Editor → New Query einfügen und ausführen
+
+-- Products
+create table if not exists products (
+  id bigint generated by default as identity primary key,
+  name text not null,
+  gebinde jsonb not null default '[]'::jsonb,
+  created_at timestamptz default now()
+);
+
+-- Events
+create table if not exists events (
+  id bigint generated by default as identity primary key,
+  name text not null,
+  date_start date,
+  date_end date,
+  product_ids bigint[] not null default '{}'::bigint[],
+  created_at timestamptz default now()
+);
+
+-- Fridges
+create table if not exists fridges (
+  id bigint generated by default as identity primary key,
+  event_id bigint references events(id) on delete cascade,
+  type text not null,
+  label text not null,
+  created_at timestamptz default now()
+);
+create index if not exists fridges_event_id_idx on fridges(event_id);
+
+-- Sessions
+create table if not exists sessions (
+  id bigint generated by default as identity primary key,
+  event_id bigint references events(id) on delete cascade,
+  fridge_id bigint references fridges(id) on delete cascade,
+  timestamp bigint not null,
+  label text not null,
+  entries jsonb not null default '[]'::jsonb,
+  created_at timestamptz default now()
+);
+create index if not exists sessions_fridge_id_idx on sessions(fridge_id);
+create index if not exists sessions_event_id_idx on sessions(event_id);
+
+-- Fridge Locks (ein Lock pro Kühlgerät gleichzeitig)
+create table if not exists fridge_locks (
+  id bigint generated by default as identity primary key,
+  fridge_id bigint references fridges(id) on delete cascade unique,
+  event_id bigint references events(id) on delete cascade,
+  locked_by text not null,
+  locked_by_name text not null default 'Unbekannt',
+  locked_at timestamptz default now()
+);
+
+-- Session Photos
+create table if not exists session_photos (
+  id bigint generated by default as identity primary key,
+  session_id bigint references sessions(id) on delete cascade,
+  storage_path text not null,
+  created_at timestamptz default now()
+);
+
+-- Event Access Codes (QR-Codes für Teamzugang)
+create table if not exists event_access_codes (
+  id bigint generated by default as identity primary key,
+  event_id bigint references events(id) on delete cascade,
+  code text not null unique,
+  valid_from timestamptz not null,
+  valid_until timestamptz not null,
+  created_at timestamptz default now()
+);
+
+-- RLS aktivieren (Policies kommen in späteren Tasks)
+alter table products enable row level security;
+alter table events enable row level security;
+alter table fridges enable row level security;
+alter table sessions enable row level security;
+alter table fridge_locks enable row level security;
+alter table session_photos enable row level security;
+alter table event_access_codes enable row level security;
+
+-- Temporäre offene Policies (bis Auth fertig ist — NICHT für Produktion)
+-- Diese werden in Phase C durch echte RLS-Policies ersetzt
+create policy "temp_open_products" on products for all using (true) with check (true);
+create policy "temp_open_events" on events for all using (true) with check (true);
+create policy "temp_open_fridges" on fridges for all using (true) with check (true);
+create policy "temp_open_sessions" on sessions for all using (true) with check (true);
+create policy "temp_open_fridge_locks" on fridge_locks for all using (true) with check (true);
+create policy "temp_open_session_photos" on session_photos for all using (true) with check (true);
+create policy "temp_open_access_codes" on event_access_codes for all using (true) with check (true);
+
+-- Storage Bucket für Fotos (separat im Supabase Dashboard anlegen unter Storage → New Bucket)
+-- Bucket-Name: "session-photos", Public: false
+```
+
+- [ ] **Step 2: Schema im Supabase SQL-Editor ausführen**
+
+Im Supabase Dashboard: Project → SQL Editor → Inhalt von `supabase/schema.sql` einfügen → Run.
+
+- [ ] **Step 3: Storage Bucket anlegen**
+
+Supabase Dashboard → Storage → New Bucket → Name: `session-photos` → Public: off → Create.
+
+- [ ] **Step 4: Commit**
+
+```bash
+mkdir -p supabase
+# Datei bereits angelegt in Step 1
+git add supabase/schema.sql
+git commit -m "docs: add Supabase schema SQL"
+```
+
+---
+
+### Task A3: db.js auf Supabase umstellen
+
+**Files:**
+- Modify: `src/lib/db.js` (kompletter Rewrite, gleiche Funktionssignaturen)
+- Create: `src/lib/db.test.js`
+
+**Interfaces:**
+- Consumes: `supabase` aus `src/lib/supabase.js`
+- Produces (gleiche Signaturen wie vorher):
+  - `addProduct(product)` → `Promise<number>` (neue ID)
+  - `updateProduct(product)` → `Promise<void>`
+  - `deleteProduct(id)` → `Promise<void>`
+  - `getAllProducts()` → `Promise<Product[]>`
+  - `addEvent(event)` → `Promise<number>`
+  - `updateEvent(event)` → `Promise<void>`
+  - `getEvent(id)` → `Promise<Event>`
+  - `getAllEvents()` → `Promise<Event[]>`
+  - `deleteEvent(id)` → `Promise<void>`
+  - `addFridge(fridge)` → `Promise<number>`
+  - `getFridgesForEvent(eventId)` → `Promise<Fridge[]>`
+  - `deleteFridge(id)` → `Promise<void>`
+  - `addSession(session)` → `Promise<number>`
+  - `getSessionsForFridge(fridgeId)` → `Promise<Session[]>`
+  - `getLastSessionForFridge(fridgeId)` → `Promise<Session|null>`
+  - `getSession(id)` → `Promise<Session>`
+- Produces (neu):
+  - `getLastEndstandForFridge(fridgeId)` → `Promise<Session|null>` — letzte Session mit label='Endstand'
+  - `updateSession(session)` → `Promise<void>` — für Korrektur-Modus
+  - `getSessionsForFridgeOnDate(fridgeId, dateStr)` → `Promise<Session[]>` — Sessions eines Tages (dateStr: 'YYYY-MM-DD')
+
+**Datenmodell-Mapping (IndexedDB → Supabase):**
+- `event.dateStart` → `event.date_start` (snake_case in DB, camelCase im JS-Objekt)
+- `event.dateEnd` → `event.date_end`
+- `event.productIds` → `event.product_ids`
+- `fridge.eventId` → `fridge.event_id`
+- `session.eventId` → `session.event_id`
+- `session.fridgeId` → `session.fridge_id`
+
+> Die Hilfsfunktion `mapEvent()` / `mapFridge()` / `mapSession()` konvertiert snake_case DB-Spalten zurück zu camelCase für die React-Komponenten.
+
+- [ ] **Step 1: Test-Datei anlegen (schlägt fehl, weil db.js noch nicht umgestellt)**
+
+```js
+// src/lib/db.test.js
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Mock Supabase-Client
+vi.mock('./supabase', () => ({
+  default: {
+    from: vi.fn(),
+    rpc: vi.fn(),
+  },
+}));
+
+import supabase from './supabase';
+import { getAllProducts, addProduct } from './db';
+
+describe('getAllProducts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('gibt leeres Array zurück wenn keine Produkte', async () => {
+    supabase.from.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        order: vi.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    });
+    const result = await getAllProducts();
+    expect(result).toEqual([]);
+  });
+
+  it('gibt Produkte als camelCase zurück', async () => {
+    supabase.from.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        order: vi.fn().mockResolvedValue({
+          data: [{ id: 1, name: 'Bier', gebinde: [{ label: '24er', units: 24 }] }],
+          error: null,
+        }),
+      }),
+    });
+    const result = await getAllProducts();
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('Bier');
+    expect(result[0].gebinde).toHaveLength(1);
+  });
+});
+
+describe('addProduct', () => {
+  it('gibt die neue ID zurück', async () => {
+    supabase.from.mockReturnValue({
+      insert: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: { id: 42, name: 'Wein', gebinde: [] },
+            error: null,
+          }),
+        }),
+      }),
+    });
+    const id = await addProduct({ name: 'Wein', gebinde: [] });
+    expect(id).toBe(42);
+  });
+});
+```
+
+- [ ] **Step 2: Test ausführen — erwartet FAIL**
+
+```bash
+npm test
+```
+Erwartete Ausgabe: FAIL (addProduct, getAllProducts sind noch IndexedDB-Implementierungen)
+
+- [ ] **Step 3: db.js komplett auf Supabase umschreiben**
+
+```js
+// src/lib/db.js
+import supabase from './supabase';
+
+function throwIfError({ error }, context) {
+  if (error) throw new Error(`[db.js] ${context}: ${error.message}`);
+}
+
+function mapEvent(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    dateStart: row.date_start,
+    dateEnd: row.date_end,
+    productIds: row.product_ids ?? [],
+    createdAt: row.created_at,
+  };
+}
+
+function mapFridge(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    type: row.type,
+    label: row.label,
+    createdAt: row.created_at,
+  };
+}
+
+function mapSession(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    fridgeId: row.fridge_id,
+    timestamp: row.timestamp,
+    label: row.label,
+    entries: row.entries ?? [],
+  };
+}
+
+// ---------- Products ----------
+export async function addProduct(product) {
+  const result = await supabase
+    .from('products')
+    .insert({ name: product.name, gebinde: product.gebinde })
+    .select()
+    .single();
+  throwIfError(result, 'addProduct');
+  return result.data.id;
+}
+
+export async function updateProduct(product) {
+  const result = await supabase
+    .from('products')
+    .update({ name: product.name, gebinde: product.gebinde })
+    .eq('id', product.id);
+  throwIfError(result, 'updateProduct');
+}
+
+export async function deleteProduct(id) {
+  const result = await supabase.from('products').delete().eq('id', id);
+  throwIfError(result, 'deleteProduct');
+}
+
+export async function getAllProducts() {
+  const result = await supabase.from('products').select('*').order('name');
+  throwIfError(result, 'getAllProducts');
+  return result.data;
+}
+
+// ---------- Events ----------
+export async function addEvent(event) {
+  const result = await supabase
+    .from('events')
+    .insert({
+      name: event.name,
+      date_start: event.dateStart ?? null,
+      date_end: event.dateEnd ?? null,
+      product_ids: event.productIds ?? [],
+    })
+    .select()
+    .single();
+  throwIfError(result, 'addEvent');
+  return result.data.id;
+}
+
+export async function updateEvent(event) {
+  const result = await supabase
+    .from('events')
+    .update({
+      name: event.name,
+      date_start: event.dateStart ?? null,
+      date_end: event.dateEnd ?? null,
+      product_ids: event.productIds ?? [],
+    })
+    .eq('id', event.id);
+  throwIfError(result, 'updateEvent');
+}
+
+export async function getEvent(id) {
+  const result = await supabase.from('events').select('*').eq('id', id).single();
+  throwIfError(result, 'getEvent');
+  return mapEvent(result.data);
+}
+
+export async function getAllEvents() {
+  const result = await supabase.from('events').select('*').order('date_start', { ascending: false });
+  throwIfError(result, 'getAllEvents');
+  return result.data.map(mapEvent);
+}
+
+export async function deleteEvent(id) {
+  // Cascade löscht fridges + sessions automatisch (FK on delete cascade)
+  const result = await supabase.from('events').delete().eq('id', id);
+  throwIfError(result, 'deleteEvent');
+}
+
+// ---------- Fridges ----------
+export async function addFridge(fridge) {
+  const existing = await getFridgesForEvent(fridge.eventId);
+  const prefix = fridge.type === 'Kühltruhe' ? 'T' : 'K';
+  const countOfType = existing.filter((f) => f.type === fridge.type).length;
+  const label = `${prefix}${countOfType + 1}`;
+  const result = await supabase
+    .from('fridges')
+    .insert({ event_id: fridge.eventId, type: fridge.type, label })
+    .select()
+    .single();
+  throwIfError(result, 'addFridge');
+  return result.data.id;
+}
+
+export async function getFridgesForEvent(eventId) {
+  const result = await supabase
+    .from('fridges')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('label');
+  throwIfError(result, 'getFridgesForEvent');
+  return result.data.map(mapFridge);
+}
+
+export async function deleteFridge(id) {
+  // Cascade löscht sessions + fridge_locks automatisch
+  const result = await supabase.from('fridges').delete().eq('id', id);
+  throwIfError(result, 'deleteFridge');
+}
+
+// ---------- Sessions ----------
+export async function addSession(session) {
+  const result = await supabase
+    .from('sessions')
+    .insert({
+      event_id: session.eventId,
+      fridge_id: session.fridgeId,
+      timestamp: session.timestamp,
+      label: session.label,
+      entries: session.entries,
+    })
+    .select()
+    .single();
+  throwIfError(result, 'addSession');
+  return result.data.id;
+}
+
+export async function updateSession(session) {
+  const result = await supabase
+    .from('sessions')
+    .update({ entries: session.entries, label: session.label })
+    .eq('id', session.id);
+  throwIfError(result, 'updateSession');
+}
+
+export async function getSessionsForFridge(fridgeId) {
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .order('timestamp');
+  throwIfError(result, 'getSessionsForFridge');
+  return result.data.map(mapSession);
+}
+
+export async function getLastSessionForFridge(fridgeId) {
+  const sessions = await getSessionsForFridge(fridgeId);
+  return sessions.length ? sessions[sessions.length - 1] : null;
+}
+
+export async function getLastEndstandForFridge(fridgeId) {
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .eq('label', 'Endstand')
+    .order('timestamp', { ascending: false })
+    .limit(1);
+  throwIfError(result, 'getLastEndstandForFridge');
+  return result.data.length ? mapSession(result.data[0]) : null;
+}
+
+export async function getSessionsForFridgeOnDate(fridgeId, dateStr) {
+  // dateStr: 'YYYY-MM-DD'
+  const from = new Date(dateStr + 'T00:00:00').getTime();
+  const to = new Date(dateStr + 'T23:59:59').getTime();
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .gte('timestamp', from)
+    .lte('timestamp', to)
+    .order('timestamp');
+  throwIfError(result, 'getSessionsForFridgeOnDate');
+  return result.data.map(mapSession);
+}
+
+export async function getSession(id) {
+  const result = await supabase.from('sessions').select('*').eq('id', id).single();
+  throwIfError(result, 'getSession');
+  return mapSession(result.data);
+}
+```
+
+- [ ] **Step 4: Tests ausführen — erwartet PASS**
+
+```bash
+npm test
+```
+Erwartete Ausgabe: PASS (2 Test-Suites, alle Tests grün)
+
+- [ ] **Step 5: App manuell testen**
+
+```bash
+npm run dev
+```
+Browser öffnen, Produkte anlegen, Veranstaltung anlegen, Kühlgerät anlegen, Zählung starten. Alles muss funktionieren wie vorher — jetzt mit Supabase im Hintergrund.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/lib/db.js src/lib/db.test.js
+git commit -m "feat: migrate db.js from IndexedDB to Supabase Postgres"
+```
+
+---
+
+## Phase B: Anfangsstand/Endstand + Korrektur-Modus
+
+### Task B1: Anfangsstand/Endstand Auswahl
+
+**Files:**
+- Modify: `src/pages/Counting.jsx`
+- Modify: `src/pages/EventDetail.jsx`
+
+**Interfaces:**
+- Consumes: `getSessionsForFridgeOnDate(fridgeId, dateStr)`, `getLastEndstandForFridge(fridgeId)` aus `src/lib/db.js`
+- Produces: Sessions haben jetzt immer entweder `label = 'Anfangsstand'` oder `label = 'Endstand'` — nie mehr `'Zählung'`
+
+**Ablauf:**
+1. User klickt "Neue Zählung starten" auf EventDetail
+2. Es erscheint ein Modal/Screen: "Was möchtest du zählen?" → Anfangsstand | Endstand
+3. Die Auswahl wird als State in die Counting-Seite übergeben (via URL-Query-Param: `/count/:fridgeId?type=Anfangsstand`)
+4. In Counting.jsx: `lastSession` für Diff-Vergleich ist jetzt der letzte **Endstand**, nicht die letzte Session überhaupt
+5. `finishCounting()` setzt `label` auf den gewählten Typ statt auto-ermittelt
+
+- [ ] **Step 1: URL-Query-Param in EventDetail übergeben**
+
+In `src/pages/EventDetail.jsx` den Button "Neue Zählung starten" ändern:
+
+```jsx
+// Vorher:
+<button className="btn-primary" onClick={() => navigate(`/count/${f.id}`)}>
+  Neue Zählung starten
+</button>
+
+// Nachher: Modal-State pro Kühlgerät + zwei Buttons
+```
+
+Kompletter Ersatz der Fridge-Render-Funktion in EventDetail:
+
+```jsx
+// Neuen State am Anfang der Komponente hinzufügen:
+const [countTypeModal, setCountTypeModal] = useState(null); // fridgeId oder null
+
+// Im JSX die fridge-item-Buttons ersetzen:
+<button
+  className="btn-primary"
+  onClick={() => setCountTypeModal(f.id)}
+>
+  Neue Zählung starten
+</button>
+
+// Und nach der fridge-list, vor dem schließenden </div> des card:
+{countTypeModal && (
+  <div className="modal-overlay" onClick={() => setCountTypeModal(null)}>
+    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      <h3>Welcher Zähltyp?</h3>
+      <div className="row">
+        <button
+          className="btn-primary big"
+          onClick={() => {
+            setCountTypeModal(null);
+            navigate(`/count/${countTypeModal}?type=Anfangsstand`);
+          }}
+        >
+          Anfangsstand
+        </button>
+        <button
+          className="btn-secondary big"
+          onClick={() => {
+            setCountTypeModal(null);
+            navigate(`/count/${countTypeModal}?type=Endstand`);
+          }}
+        >
+          Endstand
+        </button>
+      </div>
+      <button className="btn-link" onClick={() => setCountTypeModal(null)}>
+        Abbrechen
+      </button>
+    </div>
+  </div>
+)}
+```
+
+- [ ] **Step 2: CSS für Modal hinzufügen**
+
+In `src/index.css` am Ende anhängen:
+
+```css
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-card {
+  background: var(--bg, #fff);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 360px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+```
+
+- [ ] **Step 3: Counting.jsx auf Query-Param und getLastEndstandForFridge umstellen**
+
+```jsx
+// src/pages/Counting.jsx — relevante Änderungen:
+
+// Import ergänzen:
+import { useSearchParams } from 'react-router-dom';
+import {
+  getAllProducts,
+  getEvent,
+  getDB,
+  getLastEndstandForFridge,
+  addSession,
+} from '../lib/db';
+
+// In der Komponente:
+const [searchParams] = useSearchParams();
+const countType = searchParams.get('type') || 'Anfangsstand';
+
+// In load(): lastSession-Aufruf ändern:
+const last = await getLastEndstandForFridge(Number(fridgeId));
+setLastSession(last);
+
+// In finishCounting(): label aus countType:
+const session = {
+  eventId: event.id,
+  fridgeId: fridge.id,
+  timestamp: Date.now(),
+  label: countType,  // statt vorheriger Auto-Ermittlung
+  entries: finalEntries,
+};
+```
+
+Vollständige überarbeitete `Counting.jsx`:
+
+```jsx
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  getAllProducts,
+  getEvent,
+  getLastEndstandForFridge,
+  addSession,
+  getDB,
+} from '../lib/db';
+import { computeTotal } from '../lib/units';
+
+export default function Counting() {
+  const { fridgeId } = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const countType = searchParams.get('type') || 'Anfangsstand';
+
+  const [fridge, setFridge] = useState(null);
+  const [event, setEvent] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [lastEndstand, setLastEndstand] = useState(null);
+  const [step, setStep] = useState(0);
+  const [entries, setEntries] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, [fridgeId]);
+
+  async function load() {
+    setLoading(true);
+    const allProducts = await getAllProducts();
+    const db = await getDB();
+    const fr = await db.get('fridges', Number(fridgeId));
+    setFridge(fr);
+    const ev = await getEvent(fr.eventId);
+    setEvent(ev);
+    const eventProducts = allProducts.filter((p) => ev.productIds.includes(p.id));
+    setProducts(eventProducts);
+    const last = await getLastEndstandForFridge(Number(fridgeId));
+    setLastEndstand(last);
+    const initialEntries = {};
+    eventProducts.forEach((p) => { initialEntries[p.id] = { loose: '', gebindeCounts: {} }; });
+    setEntries(initialEntries);
+    setLoading(false);
+  }
+
+  if (loading || !fridge || !event) return <div className="page">Lädt...</div>;
+  if (products.length === 0) {
+    return (
+      <div className="page">
+        <p>Für diese Veranstaltung sind keine Produkte ausgewählt.</p>
+        <button className="btn-secondary" onClick={() => navigate(-1)}>Zurück</button>
+      </div>
+    );
+  }
+
+  const product = products[step];
+  const entry = entries[product.id] || { loose: '', gebindeCounts: {} };
+
+  function updateLoose(val) {
+    setEntries((prev) => ({ ...prev, [product.id]: { ...prev[product.id], loose: val } }));
+  }
+  function updateGebinde(label, val) {
+    setEntries((prev) => ({
+      ...prev,
+      [product.id]: {
+        ...prev[product.id],
+        gebindeCounts: { ...prev[product.id].gebindeCounts, [label]: val },
+      },
+    }));
+  }
+
+  const currentTotal = computeTotal(entry.loose, entry.gebindeCounts, product);
+
+  let diffWarning = null;
+  if (lastEndstand && countType === 'Anfangsstand') {
+    const lastEntry = lastEndstand.entries.find((e) => e.productId === product.id);
+    if (lastEntry) {
+      const diff = currentTotal - lastEntry.total;
+      if (diff < 0) {
+        diffWarning = `Minus ${Math.abs(diff)} gegenüber letztem Endstand (${lastEntry.total} → ${currentTotal})`;
+      }
+    }
+  }
+
+  function goNext() {
+    if (step < products.length - 1) setStep(step + 1);
+    else finishCounting();
+  }
+  function goBack() {
+    if (step > 0) setStep(step - 1);
+  }
+
+  async function finishCounting() {
+    const finalEntries = products.map((p) => {
+      const e = entries[p.id] || { loose: '', gebindeCounts: {} };
+      return {
+        productId: p.id,
+        productName: p.name,
+        loose: Number(e.loose) || 0,
+        gebindeCounts: e.gebindeCounts,
+        total: computeTotal(e.loose, e.gebindeCounts, p),
+      };
+    });
+    const session = {
+      eventId: event.id,
+      fridgeId: fridge.id,
+      timestamp: Date.now(),
+      label: countType,
+      entries: finalEntries,
+    };
+    const id = await addSession(session);
+    navigate(`/summary/${id}`);
+  }
+
+  return (
+    <div className="page counting-page">
+      <div className="counting-header">
+        <span className="muted">{fridge.label} — {event.name}</span>
+        <span className="counting-type-badge">{countType}</span>
+        <span className="muted">{step + 1} / {products.length}</span>
+      </div>
+      <h1 className="product-title">{product.name}</h1>
+      <div className="count-field">
+        <label>Lose Flaschen / Stück</label>
+        <input
+          className="input big"
+          type="number"
+          inputMode="numeric"
+          autoFocus
+          value={entry.loose}
+          onChange={(e) => updateLoose(e.target.value)}
+          placeholder="0"
+        />
+      </div>
+      {product.gebinde?.map((g) => (
+        <div className="count-field" key={g.label}>
+          <label>{g.label} (à {g.units} Stk.)</label>
+          <input
+            className="input big"
+            type="number"
+            inputMode="numeric"
+            value={entry.gebindeCounts[g.label] || ''}
+            onChange={(e) => updateGebinde(g.label, e.target.value)}
+            placeholder="0"
+          />
+        </div>
+      ))}
+      <div className="total-display">Gesamt: {currentTotal} Stk.</div>
+      {diffWarning && <div className="diff-warning">⚠ {diffWarning}</div>}
+      <div className="counting-nav">
+        <button className="btn-secondary big" onClick={goBack} disabled={step === 0}>Zurück</button>
+        <button className="btn-primary big" onClick={goNext}>
+          {step < products.length - 1 ? 'Weiter' : 'Fertig'}
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Testen im Browser**
+
+`npm run dev` — Im Browser: EventDetail öffnen → "Neue Zählung starten" → Modal erscheint → "Anfangsstand" wählen → Zählung läuft mit Badge "Anfangsstand" oben. Für Endstand dasselbe mit "Endstand".
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/pages/Counting.jsx src/pages/EventDetail.jsx src/index.css
+git commit -m "feat: add Anfangsstand/Endstand selection with modal and type badge"
+```
+
+---
+
+### Task B2: Korrektur-Modus
+
+Wenn für ein Kühlgerät am heutigen Tag bereits eine Session des gewählten Typs existiert, wird statt eines neuen Zähl-Flows ein Korrektur-Dialog angeboten: Produktliste der vorhandenen Session → ein Produkt auswählen → direkt zu dessen Zähl-Screen → nur dieses Produkt überschreiben.
+
+**Files:**
+- Create: `src/pages/Correction.jsx`
+- Modify: `src/pages/EventDetail.jsx`
+- Modify: `src/App.jsx`
+
+**Interfaces:**
+- Consumes: `getSessionsForFridgeOnDate(fridgeId, dateStr)`, `updateSession(session)` aus `src/lib/db.js`
+- Route: `/correct/:sessionId/:productId`
+
+- [ ] **Step 1: Route in App.jsx eintragen**
+
+```jsx
+// src/App.jsx — Import hinzufügen:
+import Correction from './pages/Correction';
+
+// Route hinzufügen:
+<Route path="/correct/:sessionId/:productId" element={<Correction />} />
+```
+
+- [ ] **Step 2: EventDetail — Korrektur-Check nach Typenauswahl im Modal**
+
+Im Modal-Handler in `EventDetail.jsx` vor dem `navigate()` prüfen ob heute schon eine Session dieses Typs existiert:
+
+```jsx
+// Neue Hilfsfunktion in EventDetail hinzufügen:
+async function startCounting(fridgeId, type) {
+  setCountTypeModal(null);
+  const today = new Date().toISOString().slice(0, 10);
+  const todaysSessions = await getSessionsForFridgeOnDate(Number(fridgeId), today);
+  const existing = todaysSessions.find((s) => s.label === type);
+  if (existing) {
+    // Korrektur-Modus: nicht neu zählen, sondern korrigieren
+    navigate(`/correct/${existing.id}/choose`);
+  } else {
+    navigate(`/count/${fridgeId}?type=${type}`);
+  }
+}
+
+// Import ergänzen:
+import { getEvent, getFridgesForEvent, addFridge, deleteFridge, getSessionsForFridge, getSessionsForFridgeOnDate } from '../lib/db';
+```
+
+Modal-Buttons aktualisieren:
+```jsx
+<button className="btn-primary big" onClick={() => startCounting(countTypeModal, 'Anfangsstand')}>
+  Anfangsstand
+</button>
+<button className="btn-secondary big" onClick={() => startCounting(countTypeModal, 'Endstand')}>
+  Endstand
+</button>
+```
+
+- [ ] **Step 3: Correction.jsx anlegen**
+
+Route `/correct/:sessionId/choose` zeigt Produktliste. Route `/correct/:sessionId/:productId` zeigt Zähl-Screen für ein Produkt.
+
+```jsx
+// src/pages/Correction.jsx
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { getSession, getEvent, getAllProducts, updateSession, getDB } from '../lib/db';
+import { computeTotal } from '../lib/units';
+
+export default function Correction() {
+  const { sessionId, productId } = useParams();
+  const navigate = useNavigate();
+  const [session, setSession] = useState(null);
+  const [event, setEvent] = useState(null);
+  const [fridge, setFridge] = useState(null);
+  const [allProducts, setAllProducts] = useState([]);
+  const [entry, setEntry] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, [sessionId]);
+
+  async function load() {
+    setLoading(true);
+    const s = await getSession(Number(sessionId));
+    setSession(s);
+    const ev = await getEvent(s.eventId);
+    setEvent(ev);
+    const db = await getDB();
+    const fr = await db.get('fridges', s.fridgeId);
+    setFridge(fr);
+    const prods = await getAllProducts();
+    setAllProducts(prods);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (session && productId !== 'choose') {
+      const existing = session.entries.find((e) => e.productId === Number(productId));
+      if (existing) {
+        setEntry({
+          loose: String(existing.loose),
+          gebindeCounts: { ...existing.gebindeCounts },
+        });
+      }
+    }
+  }, [session, productId]);
+
+  if (loading || !session || !event || !fridge) return <div className="page">Lädt...</div>;
+
+  // Produktauswahl-Screen
+  if (productId === 'choose') {
+    return (
+      <div className="page">
+        <div className="counting-header">
+          <span className="muted">{fridge.label} — {event.name}</span>
+          <span className="counting-type-badge correction">Korrektur: {session.label}</span>
+        </div>
+        <h2>Welches Produkt korrigieren?</h2>
+        <ul className="product-list">
+          {session.entries.map((e) => (
+            <li key={e.productId}>
+              <button
+                className="btn-secondary"
+                style={{ width: '100%', textAlign: 'left' }}
+                onClick={() => navigate(`/correct/${sessionId}/${e.productId}`)}
+              >
+                <strong>{e.productName}</strong>
+                <span className="muted"> — aktuell: {e.total} Stk.</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button className="btn-link" onClick={() => navigate(-1)}>Abbrechen</button>
+      </div>
+    );
+  }
+
+  // Zähl-Screen für ein Produkt
+  const product = allProducts.find((p) => p.id === Number(productId));
+  if (!product || !entry) return <div className="page">Produkt nicht gefunden.</div>;
+
+  const currentTotal = computeTotal(entry.loose, entry.gebindeCounts, product);
+
+  function updateLoose(val) {
+    setEntry((prev) => ({ ...prev, loose: val }));
+  }
+  function updateGebinde(label, val) {
+    setEntry((prev) => ({ ...prev, gebindeCounts: { ...prev.gebindeCounts, [label]: val } }));
+  }
+
+  async function saveCorrection() {
+    const updatedEntries = session.entries.map((e) => {
+      if (e.productId !== Number(productId)) return e;
+      return {
+        ...e,
+        loose: Number(entry.loose) || 0,
+        gebindeCounts: entry.gebindeCounts,
+        total: currentTotal,
+      };
+    });
+    await updateSession({ ...session, entries: updatedEntries });
+    navigate(`/summary/${sessionId}`);
+  }
+
+  return (
+    <div className="page counting-page">
+      <div className="counting-header">
+        <span className="muted">{fridge.label} — Korrektur {session.label}</span>
+      </div>
+      <h1 className="product-title">{product.name}</h1>
+      <div className="count-field">
+        <label>Lose Flaschen / Stück</label>
+        <input
+          className="input big"
+          type="number"
+          inputMode="numeric"
+          autoFocus
+          value={entry.loose}
+          onChange={(e) => updateLoose(e.target.value)}
+          placeholder="0"
+        />
+      </div>
+      {product.gebinde?.map((g) => (
+        <div className="count-field" key={g.label}>
+          <label>{g.label} (à {g.units} Stk.)</label>
+          <input
+            className="input big"
+            type="number"
+            inputMode="numeric"
+            value={entry.gebindeCounts[g.label] || ''}
+            onChange={(e) => updateGebinde(g.label, e.target.value)}
+            placeholder="0"
+          />
+        </div>
+      ))}
+      <div className="total-display">Gesamt: {currentTotal} Stk.</div>
+      <div className="counting-nav">
+        <button className="btn-secondary big" onClick={() => navigate(-1)}>Abbrechen</button>
+        <button className="btn-primary big" onClick={saveCorrection}>Korrektur speichern</button>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Testen im Browser**
+
+1. Anfangsstand für ein Kühlgerät zählen und abschließen
+2. Auf EventDetail zurückgehen → "Neue Zählung starten" → "Anfangsstand" wählen
+3. Korrektur-Screen erscheint mit Produktliste
+4. Produkt auswählen → Zähl-Screen mit aktuellem Wert
+5. Wert ändern → "Korrektur speichern" → Zusammenfassung mit neuem Wert
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/pages/Correction.jsx src/pages/EventDetail.jsx src/App.jsx
+git commit -m "feat: add Korrektur-Modus for existing same-day sessions"
+```
+
+---
+
+## Phase C: Owner Auth + geschützte Routen
+
+### Task C1: Login-Screen und Auth-Logik
+
+**Files:**
+- Create: `src/lib/auth.js`
+- Create: `src/pages/Login.jsx`
+- Modify: `src/App.jsx`
+
+**Interfaces:**
+- Produces:
+  - `signIn(email, password)` → `Promise<void>`
+  - `signOut()` → `Promise<void>`
+  - `getCurrentUser()` → `Promise<User|null>`
+  - `onAuthChange(callback)` → unsubscribe function
+
+- [ ] **Step 1: auth.js anlegen**
+
+```js
+// src/lib/auth.js
+import supabase from './supabase';
+
+export async function signIn(email, password) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(error.message);
+}
+
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error(error.message);
+}
+
+export async function getCurrentUser() {
+  const { data } = await supabase.auth.getUser();
+  return data?.user ?? null;
+}
+
+export function onAuthChange(callback) {
+  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    callback(session?.user ?? null);
+  });
+  return () => data.subscription.unsubscribe();
+}
+```
+
+- [ ] **Step 2: Login.jsx anlegen**
+
+```jsx
+// src/pages/Login.jsx
+import { useState } from 'react';
+import { signIn } from '../lib/auth';
+
+export default function Login({ onLogin }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await signIn(email, password);
+      onLogin();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="page" style={{ maxWidth: 400, margin: '4rem auto' }}>
+      <h1>Festwerk Stand-App</h1>
+      <div className="card">
+        <h2>Anmelden</h2>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <input
+            className="input"
+            type="email"
+            placeholder="E-Mail"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+          />
+          <input
+            className="input"
+            type="password"
+            placeholder="Passwort"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+          />
+          {error && <p className="muted" style={{ color: 'var(--danger, #e00)' }}>{error}</p>}
+          <button className="btn-primary" type="submit" disabled={loading}>
+            {loading ? 'Anmelden...' : 'Anmelden'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: App.jsx mit Auth-Gate erweitern**
+
+```jsx
+// src/App.jsx
+import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import Products from './pages/Products';
+import Events from './pages/Events';
+import EventDetail from './pages/EventDetail';
+import Counting from './pages/Counting';
+import Summary from './pages/Summary';
+import Correction from './pages/Correction';
+import Login from './pages/Login';
+import { getCurrentUser, onAuthChange, signOut } from './lib/auth';
+
+function Nav({ user }) {
+  const location = useLocation();
+  const isCounting =
+    location.pathname.startsWith('/count/') ||
+    location.pathname.startsWith('/correct/');
+  if (isCounting) return null;
+  return (
+    <nav className="nav">
+      <Link to="/events">Veranstaltungen</Link>
+      <Link to="/products">Produkte</Link>
+      <button className="btn-link" onClick={signOut} style={{ marginLeft: 'auto' }}>
+        Abmelden
+      </button>
+    </nav>
+  );
+}
+
+export default function App() {
+  const [user, setUser] = useState(undefined); // undefined = noch laden
+
+  useEffect(() => {
+    getCurrentUser().then(setUser);
+    const unsub = onAuthChange(setUser);
+    return unsub;
+  }, []);
+
+  if (user === undefined) return <div className="page">Lädt...</div>;
+
+  if (!user) return <Login onLogin={() => getCurrentUser().then(setUser)} />;
+
+  return (
+    <HashRouter>
+      <Nav user={user} />
+      <Routes>
+        <Route path="/" element={<Events />} />
+        <Route path="/events" element={<Events />} />
+        <Route path="/products" element={<Products />} />
+        <Route path="/event/:eventId" element={<EventDetail />} />
+        <Route path="/count/:fridgeId" element={<Counting />} />
+        <Route path="/summary/:sessionId" element={<Summary />} />
+        <Route path="/correct/:sessionId/:productId" element={<Correction />} />
+      </Routes>
+    </HashRouter>
+  );
+}
+```
+
+- [ ] **Step 4: Supabase Auth: Owner-Account anlegen**
+
+Im Supabase Dashboard: Authentication → Users → Invite user (oder Add user) → Email: `simon.ramsner@sz-ybbs.ac.at` → Passwort setzen.
+
+- [ ] **Step 5: RLS-Policies anpassen (nur Owner hat Vollzugriff)**
+
+Im Supabase SQL-Editor:
+
+```sql
+-- Temporäre offene Policies entfernen:
+drop policy if exists "temp_open_products" on products;
+drop policy if exists "temp_open_events" on events;
+drop policy if exists "temp_open_fridges" on fridges;
+drop policy if exists "temp_open_sessions" on sessions;
+drop policy if exists "temp_open_fridge_locks" on fridge_locks;
+drop policy if exists "temp_open_session_photos" on session_photos;
+drop policy if exists "temp_open_access_codes" on event_access_codes;
+
+-- Echte Policies: nur authenticated User (= Owner Simon) hat vollen Zugriff
+-- (QR-Zugang-Policies kommen in Phase D)
+create policy "owner_all_products" on products for all to authenticated using (true) with check (true);
+create policy "owner_all_events" on events for all to authenticated using (true) with check (true);
+create policy "owner_all_fridges" on fridges for all to authenticated using (true) with check (true);
+create policy "owner_all_sessions" on sessions for all to authenticated using (true) with check (true);
+create policy "owner_all_fridge_locks" on fridge_locks for all to authenticated using (true) with check (true);
+create policy "owner_all_session_photos" on session_photos for all to authenticated using (true) with check (true);
+create policy "owner_all_access_codes" on event_access_codes for all to authenticated using (true) with check (true);
+```
+
+- [ ] **Step 6: Testen**
+
+Browser → App öffnen → Login-Screen erscheint → Mit Owner-Credentials anmelden → App öffnet sich normal → "Abmelden" klicken → Login-Screen erscheint wieder.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lib/auth.js src/pages/Login.jsx src/App.jsx
+git commit -m "feat: add owner authentication with Supabase Auth"
+```
+
+---
+
+## Phase D: QR-Code Teamzugang
+
+### Task D1: Access-Code-Generierung (Owner-Seite)
+
+**Files:**
+- Create: `src/lib/accessCodes.js`
+- Modify: `src/pages/EventDetail.jsx`
+
+**Interfaces:**
+- Produces:
+  - `generateAccessCode(eventId, validFrom, validUntil)` → `Promise<string>` (der Code als UUID)
+  - `getValidAccessCode(code)` → `Promise<{ eventId, validUntil }|null>`
+  - `listAccessCodesForEvent(eventId)` → `Promise<AccessCode[]>`
+  - `deleteAccessCode(id)` → `Promise<void>`
+
+- [ ] **Step 1: accessCodes.js anlegen**
+
+```js
+// src/lib/accessCodes.js
+import supabase from './supabase';
+
+export async function generateAccessCode(eventId, validFrom, validUntil) {
+  const code = crypto.randomUUID();
+  const result = await supabase
+    .from('event_access_codes')
+    .insert({ event_id: eventId, code, valid_from: validFrom, valid_until: validUntil })
+    .select()
+    .single();
+  if (result.error) throw new Error(result.error.message);
+  return code;
+}
+
+export async function getValidAccessCode(code) {
+  const now = new Date().toISOString();
+  const result = await supabase
+    .from('event_access_codes')
+    .select('event_id, valid_until')
+    .eq('code', code)
+    .lte('valid_from', now)
+    .gte('valid_until', now)
+    .single();
+  if (result.error || !result.data) return null;
+  return { eventId: result.data.event_id, validUntil: result.data.valid_until };
+}
+
+export async function listAccessCodesForEvent(eventId) {
+  const result = await supabase
+    .from('event_access_codes')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('valid_from', { ascending: false });
+  if (result.error) throw new Error(result.error.message);
+  return result.data.map((row) => ({
+    id: row.id,
+    code: row.code,
+    validFrom: row.valid_from,
+    validUntil: row.valid_until,
+  }));
+}
+
+export async function deleteAccessCode(id) {
+  const result = await supabase.from('event_access_codes').delete().eq('id', id);
+  if (result.error) throw new Error(result.error.message);
+}
+```
+
+- [ ] **Step 2: QR-Code-Sektion in EventDetail.jsx hinzufügen**
+
+Neue Imports:
+```jsx
+import QRCode from 'qrcode';
+import { generateAccessCode, listAccessCodesForEvent, deleteAccessCode } from '../lib/accessCodes';
+```
+
+Neue States:
+```jsx
+const [accessCodes, setAccessCodes] = useState([]);
+const [qrDataUrl, setQrDataUrl] = useState(null);
+const [qrLoading, setQrLoading] = useState(false);
+```
+
+`loadAccessCodes()` Funktion und in `load()` aufrufen:
+```jsx
+async function loadAccessCodes() {
+  const codes = await listAccessCodesForEvent(Number(eventId));
+  setAccessCodes(codes);
+}
+// In load() am Ende: await loadAccessCodes();
+```
+
+`createDayCode()` Funktion:
+```jsx
+async function createDayCode() {
+  setQrLoading(true);
+  try {
+    const today = new Date();
+    const validFrom = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+    const validUntil = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+    const code = await generateAccessCode(Number(eventId), validFrom, validUntil);
+    const appUrl = window.location.origin + window.location.pathname;
+    const accessUrl = `${appUrl}#/team/${code}`;
+    const dataUrl = await QRCode.toDataURL(accessUrl, { width: 300, margin: 2 });
+    setQrDataUrl(dataUrl);
+    await loadAccessCodes();
+  } finally {
+    setQrLoading(false);
+  }
+}
+```
+
+QR-Code-Karte im JSX (vor dem letzten `</div>`):
+```jsx
+<div className="card">
+  <h2>Teamzugang (QR-Code)</h2>
+  <button className="btn-secondary" onClick={createDayCode} disabled={qrLoading}>
+    {qrLoading ? 'Erstelle...' : '+ Code für heute erstellen'}
+  </button>
+  {qrDataUrl && (
+    <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+      <img src={qrDataUrl} alt="QR-Code" style={{ maxWidth: 240 }} />
+      <p className="muted">Gültig heute bis Mitternacht. QR-Code abfotografieren.</p>
+    </div>
+  )}
+  {accessCodes.length > 0 && (
+    <ul className="product-list" style={{ marginTop: '1rem' }}>
+      {accessCodes.map((c) => (
+        <li key={c.id}>
+          <span className="muted">
+            Gültig bis {new Date(c.validUntil).toLocaleString('de-AT')}
+          </span>
+          <button className="btn-link danger" onClick={async () => { await deleteAccessCode(c.id); loadAccessCodes(); }}>
+            Löschen
+          </button>
+        </li>
+      ))}
+    </ul>
+  )}
+</div>
+```
+
+- [ ] **Step 3: Testen**
+
+`npm run dev` → EventDetail → "Code für heute erstellen" → QR-Code erscheint → Code in `event_access_codes` in Supabase Dashboard prüfen.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/lib/accessCodes.js src/pages/EventDetail.jsx
+git commit -m "feat: add QR access code generation for team members"
+```
+
+---
+
+### Task D2: Öffentliche Team-Route (ohne Login)
+
+**Files:**
+- Create: `src/pages/TeamAccess.jsx`
+- Modify: `src/App.jsx`
+
+**Ablauf:** `/team/:code` → Code validieren → wenn gültig: Kühlgeräteliste der Veranstaltung anzeigen → Zählen (ohne Owner-Auth). Die Team-Route ist öffentlich — sie liegt AUSSERHALB des Auth-Gates in App.jsx.
+
+- [ ] **Step 1: App.jsx Auth-Gate aufteilen — Team-Route öffentlich machen**
+
+```jsx
+// src/App.jsx — gesamte Datei:
+import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import Products from './pages/Products';
+import Events from './pages/Events';
+import EventDetail from './pages/EventDetail';
+import Counting from './pages/Counting';
+import Summary from './pages/Summary';
+import Correction from './pages/Correction';
+import Login from './pages/Login';
+import TeamAccess from './pages/TeamAccess';
+import { getCurrentUser, onAuthChange, signOut } from './lib/auth';
+
+function Nav() {
+  const location = useLocation();
+  const isCounting =
+    location.pathname.startsWith('/count/') ||
+    location.pathname.startsWith('/correct/') ||
+    location.pathname.startsWith('/team/');
+  if (isCounting) return null;
+  return (
+    <nav className="nav">
+      <Link to="/events">Veranstaltungen</Link>
+      <Link to="/products">Produkte</Link>
+      <button className="btn-link" onClick={signOut} style={{ marginLeft: 'auto' }}>
+        Abmelden
+      </button>
+    </nav>
+  );
+}
+
+function OwnerApp() {
+  return (
+    <Routes>
+      <Route path="/" element={<Events />} />
+      <Route path="/events" element={<Events />} />
+      <Route path="/products" element={<Products />} />
+      <Route path="/event/:eventId" element={<EventDetail />} />
+      <Route path="/count/:fridgeId" element={<Counting />} />
+      <Route path="/summary/:sessionId" element={<Summary />} />
+      <Route path="/correct/:sessionId/:productId" element={<Correction />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  const [user, setUser] = useState(undefined);
+
+  useEffect(() => {
+    getCurrentUser().then(setUser);
+    const unsub = onAuthChange(setUser);
+    return unsub;
+  }, []);
+
+  return (
+    <HashRouter>
+      <Routes>
+        {/* Öffentliche Team-Route — kein Auth nötig */}
+        <Route path="/team/:code" element={<TeamAccess />} />
+        <Route path="/team/:code/count/:fridgeId" element={<Counting />} />
+        <Route path="/team/:code/summary/:sessionId" element={<Summary />} />
+
+        {/* Owner-Bereich */}
+        <Route
+          path="*"
+          element={
+            user === undefined ? (
+              <div className="page">Lädt...</div>
+            ) : !user ? (
+              <Login onLogin={() => getCurrentUser().then(setUser)} />
+            ) : (
+              <>
+                <Nav />
+                <OwnerApp />
+              </>
+            )
+          }
+        />
+      </Routes>
+    </HashRouter>
+  );
+}
+```
+
+- [ ] **Step 2: TeamAccess.jsx anlegen**
+
+```jsx
+// src/pages/TeamAccess.jsx
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { getValidAccessCode } from '../lib/accessCodes';
+import { getEvent, getFridgesForEvent, getSessionsForFridge, addSession } from '../lib/db';
+import { formatDateTime } from '../lib/units';
+
+export default function TeamAccess() {
+  const { code } = useParams();
+  const navigate = useNavigate();
+  const [state, setState] = useState('loading'); // loading | invalid | valid
+  const [event, setEvent] = useState(null);
+  const [fridges, setFridges] = useState([]);
+  const [sessionCounts, setSessionCounts] = useState({});
+
+  useEffect(() => {
+    validate();
+  }, [code]);
+
+  async function validate() {
+    const result = await getValidAccessCode(code);
+    if (!result) {
+      setState('invalid');
+      return;
+    }
+    const ev = await getEvent(result.eventId);
+    setEvent(ev);
+    const fr = await getFridgesForEvent(result.eventId);
+    setFridges(fr);
+    const counts = {};
+    for (const f of fr) {
+      counts[f.id] = await getSessionsForFridge(f.id);
+    }
+    setSessionCounts(counts);
+    setState('valid');
+  }
+
+  if (state === 'loading') return <div className="page">Code wird geprüft...</div>;
+
+  if (state === 'invalid') {
+    return (
+      <div className="page">
+        <div className="card">
+          <h2>Ungültiger oder abgelaufener Code</h2>
+          <p className="muted">Bitte einen neuen QR-Code vom Veranstaltungsleiter holen.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page">
+      <h1>{event.name}</h1>
+      <p className="muted">Teamzugang — Kühlgeräte zählen</p>
+      <div className="card">
+        <h2>Kühlgeräte</h2>
+        <ul className="fridge-list">
+          {fridges.map((f) => {
+            const sessions = sessionCounts[f.id] || [];
+            const last = sessions[sessions.length - 1];
+            return (
+              <li key={f.id} className="fridge-item">
+                <div className="fridge-header">
+                  <strong>{f.label} — {f.type}</strong>
+                </div>
+                <p className="muted">
+                  {sessions.length === 0
+                    ? 'Noch nicht gezählt'
+                    : `Letzte Zählung: ${last.label} — ${formatDateTime(last.timestamp)}`}
+                </p>
+                <button
+                  className="btn-primary"
+                  onClick={() => navigate(`/team/${code}/count/${f.id}?type=Anfangsstand`)}
+                >
+                  Anfangsstand zählen
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => navigate(`/team/${code}/count/${f.id}?type=Endstand`)}
+                >
+                  Endstand zählen
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: RLS für anonymen QR-Zugriff erweitern**
+
+Im Supabase SQL-Editor eine Supabase-Funktion anlegen, die den Code validiert:
+
+```sql
+-- Hilfsfunktion: prüft ob Code gültig ist und gibt event_id zurück (oder null)
+create or replace function get_event_id_for_valid_code(access_code text)
+returns bigint
+language sql
+security definer
+as $$
+  select event_id from event_access_codes
+  where code = access_code
+    and valid_from <= now()
+    and valid_until >= now()
+  limit 1;
+$$;
+
+-- Anon-Policies: Lesezugriff wenn gültiger Code existiert
+-- Hinweis: Diese Policies prüfen nicht welcher Code übergeben wurde —
+-- das passiert clientseitig in getValidAccessCode().
+-- Für strikte serverseitige Prüfung wäre eine Edge Function nötig (optional).
+-- Für den MVP reicht anon read access auf Fridges/Events/Sessions aus:
+create policy "anon_read_events" on events for select to anon using (true);
+create policy "anon_read_fridges" on fridges for select to anon using (true);
+create policy "anon_read_sessions" on sessions for select to anon using (true);
+create policy "anon_read_access_codes" on event_access_codes for select to anon using (true);
+create policy "anon_insert_sessions" on sessions for insert to anon with check (true);
+```
+
+- [ ] **Step 4: Testen**
+
+1. Owner: EventDetail → "Code für heute erstellen" → QR-Code erscheint
+2. QR-Code-URL kopieren, neues Inkognito-Fenster öffnen (ohne Owner-Login)
+3. URL einfügen → Team-Ansicht erscheint mit Kühlgeräten
+4. "Anfangsstand zählen" → normaler Zähl-Flow → Session wird gespeichert
+5. Abgelaufenen oder falschen Code testen → "Ungültiger Code"-Screen erscheint
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/pages/TeamAccess.jsx src/App.jsx
+git commit -m "feat: add public team QR code access route"
+```
+
+---
+
+## Phase E: Kühlgerät-Sperrmechanismus
+
+### Task E1: Lock/Unlock-Logik und Realtime-Anzeige
+
+**Files:**
+- Create: `src/lib/locks.js`
+- Modify: `src/pages/EventDetail.jsx`
+- Modify: `src/pages/Counting.jsx`
+- Modify: `src/pages/TeamAccess.jsx`
+
+**Ablauf:**
+- Beim Öffnen von `/count/:fridgeId` → Lock setzen (mit Device-ID + Anzeigename)
+- Beim Abschließen oder Abbrechen → Lock aufheben
+- In EventDetail und TeamAccess: Realtime-Subscription auf `fridge_locks` → Live-Anzeige
+- Timeout: 20 Minuten Inaktivität → Lock automatisch per DB-Trigger aufheben
+
+**Interfaces:**
+- Produces:
+  - `lockFridge(fridgeId, eventId, lockedBy, lockedByName)` → `Promise<boolean>` (true wenn erfolgreich)
+  - `unlockFridge(fridgeId)` → `Promise<void>`
+  - `getFridgeLock(fridgeId)` → `Promise<FridgeLock|null>`
+  - `subscribeFridgeLocks(eventId, callback)` → `() => void` (unsubscribe)
+
+- [ ] **Step 1: locks.js anlegen**
+
+```js
+// src/lib/locks.js
+import supabase from './supabase';
+
+function getDeviceId() {
+  let id = localStorage.getItem('festwerk-device-id');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('festwerk-device-id', id);
+  }
+  return id;
+}
+
+export function getDeviceId() { return getDeviceId(); }
+
+export async function lockFridge(fridgeId, eventId, lockedByName) {
+  const lockedBy = getDeviceId();
+  // Upsert: wenn schon gesperrt, schlägt dies fehl (unique constraint auf fridge_id)
+  const result = await supabase
+    .from('fridge_locks')
+    .insert({ fridge_id: fridgeId, event_id: eventId, locked_by: lockedBy, locked_by_name: lockedByName })
+    .select()
+    .single();
+  return !result.error;
+}
+
+export async function unlockFridge(fridgeId) {
+  const lockedBy = getDeviceId();
+  await supabase
+    .from('fridge_locks')
+    .delete()
+    .eq('fridge_id', fridgeId)
+    .eq('locked_by', lockedBy);
+}
+
+export async function unlockFridgeForced(fridgeId) {
+  await supabase.from('fridge_locks').delete().eq('fridge_id', fridgeId);
+}
+
+export async function getFridgeLock(fridgeId) {
+  const result = await supabase
+    .from('fridge_locks')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .maybeSingle();
+  if (result.error || !result.data) return null;
+  return {
+    fridgeId: result.data.fridge_id,
+    lockedBy: result.data.locked_by,
+    lockedByName: result.data.locked_by_name,
+    lockedAt: result.data.locked_at,
+    isOwnLock: result.data.locked_by === getDeviceId(),
+  };
+}
+
+export function subscribeFridgeLocks(eventId, callback) {
+  const sub = supabase
+    .channel(`fridge-locks-${eventId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'fridge_locks',
+      filter: `event_id=eq.${eventId}`,
+    }, () => callback())
+    .subscribe();
+  return () => supabase.removeChannel(sub);
+}
+```
+
+- [ ] **Step 2: Supabase Realtime für fridge_locks aktivieren**
+
+Im Supabase Dashboard: Database → Replication → Supabase Realtime → `fridge_locks` Tabelle aktivieren (Insert, Update, Delete).
+
+- [ ] **Step 3: Counting.jsx — Lock beim Öffnen setzen, beim Abschließen/Abbrechen freigeben**
+
+Neue Imports:
+```jsx
+import { lockFridge, unlockFridge } from '../lib/locks';
+```
+
+In `load()` nach dem Setzen von `fridge`:
+```jsx
+// Lock setzen
+const lockName = navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC';
+const locked = await lockFridge(Number(fridgeId), fr.eventId, lockName);
+if (!locked) {
+  alert('Dieses Kühlgerät wird gerade von jemand anderem gezählt!');
+  navigate(-1);
+  return;
+}
+```
+
+`useEffect`-Cleanup (Lock bei Unmount freigeben):
+```jsx
+useEffect(() => {
+  return () => { unlockFridge(Number(fridgeId)); };
+}, [fridgeId]);
+```
+
+In `finishCounting()` vor `navigate()`:
+```jsx
+await unlockFridge(fridge.id);
+```
+
+- [ ] **Step 4: EventDetail.jsx — Lock-Status in Kühlgeräteliste anzeigen**
+
+Neue Imports:
+```jsx
+import { subscribeFridgeLocks, getFridgeLock } from '../lib/locks';
+```
+
+Neuer State:
+```jsx
+const [fridgeLocks, setFridgeLocks] = useState({}); // fridgeId -> FridgeLock|null
+```
+
+In `load()`:
+```jsx
+const locks = {};
+for (const f of fr) {
+  locks[f.id] = await getFridgeLock(f.id);
+}
+setFridgeLocks(locks);
+```
+
+Realtime-Subscription in `useEffect`:
+```jsx
+useEffect(() => {
+  const unsub = subscribeFridgeLocks(Number(eventId), load);
+  return unsub;
+}, [eventId]);
+```
+
+Im fridge-item-JSX, "Neue Zählung starten"-Button:
+```jsx
+{fridgeLocks[f.id] && !fridgeLocks[f.id].isOwnLock ? (
+  <div className="lock-badge">
+    🔒 Wird gezählt von: {fridgeLocks[f.id].lockedByName}
+  </div>
+) : (
+  <button className="btn-primary" onClick={() => setCountTypeModal(f.id)}>
+    Neue Zählung starten
+  </button>
+)}
+```
+
+CSS hinzufügen:
+```css
+.lock-badge {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}
+```
+
+- [ ] **Step 5: Automatischer Timeout per Supabase-Trigger (20 Minuten)**
+
+Im Supabase SQL-Editor:
+
+```sql
+-- pg_cron Extension aktivieren (im Supabase Dashboard: Database → Extensions → pg_cron)
+-- Dann diesen Cronjob anlegen:
+select cron.schedule(
+  'cleanup-expired-fridge-locks',
+  '*/5 * * * *',  -- alle 5 Minuten prüfen
+  $$
+  delete from fridge_locks
+  where locked_at < now() - interval '20 minutes';
+  $$
+);
+```
+
+- [ ] **Step 6: Testen**
+
+1. Zwei Geräte/Browser öffnen, gleiche EventDetail-URL
+2. Auf Gerät 1: Zählung starten → Lock erscheint auf Gerät 2 live
+3. Auf Gerät 1: Zählung abschließen → Lock verschwindet auf Gerät 2 live
+4. Direkten URL-Aufruf von `/count/:fridgeId` während gesperrt → "wird gezählt"-Alert
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lib/locks.js src/pages/Counting.jsx src/pages/EventDetail.jsx
+git commit -m "feat: add real-time fridge locking with Supabase Realtime"
+```
+
+---
+
+## Phase F: Foto-Dokumentation
+
+### Task F1: Foto aufnehmen und hochladen
+
+**Files:**
+- Create: `src/lib/photos.js`
+- Modify: `src/pages/Summary.jsx`
+
+**Interfaces:**
+- Produces:
+  - `uploadSessionPhoto(sessionId, file)` → `Promise<string>` (storage_path)
+  - `getSessionPhotos(sessionId)` → `Promise<Photo[]>` wobei `Photo = { id, sessionId, url, createdAt }`
+  - `getLastFridgePhoto(fridgeId)` → `Promise<Photo|null>`
+
+- [ ] **Step 1: photos.js anlegen**
+
+```js
+// src/lib/photos.js
+import supabase from './supabase';
+
+export async function uploadSessionPhoto(sessionId, file) {
+  const path = `sessions/${sessionId}/${Date.now()}.jpg`;
+  const { error: uploadError } = await supabase.storage
+    .from('session-photos')
+    .upload(path, file, { contentType: 'image/jpeg', upsert: false });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const result = await supabase
+    .from('session_photos')
+    .insert({ session_id: sessionId, storage_path: path })
+    .select()
+    .single();
+  if (result.error) throw new Error(result.error.message);
+  return path;
+}
+
+export async function getSessionPhotos(sessionId) {
+  const result = await supabase
+    .from('session_photos')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at');
+  if (result.error) throw new Error(result.error.message);
+  return Promise.all(
+    result.data.map(async (row) => {
+      const { data } = supabase.storage
+        .from('session-photos')
+        .getPublicUrl(row.storage_path);
+      return { id: row.id, sessionId: row.session_id, url: data.publicUrl, createdAt: row.created_at };
+    })
+  );
+}
+
+export async function getLastFridgePhoto(fridgeId) {
+  // Letzte Session des Kühlgeräts mit Foto holen
+  const sessions = await supabase
+    .from('sessions')
+    .select('id')
+    .eq('fridge_id', fridgeId)
+    .order('timestamp', { ascending: false });
+  if (sessions.error || !sessions.data.length) return null;
+
+  for (const s of sessions.data) {
+    const photos = await getSessionPhotos(s.id);
+    if (photos.length) return photos[photos.length - 1];
+  }
+  return null;
+}
+```
+
+- [ ] **Step 2: Storage-Bucket auf public umstellen (für einfache URLs)**
+
+Im Supabase Dashboard: Storage → session-photos → Edit → Public: on → Save.
+
+Alternativ signed URLs nutzen (sicherer) — dann `getPublicUrl` durch `createSignedUrl` ersetzen (15 Minuten gültig).
+
+- [ ] **Step 3: Summary.jsx — Foto-Prompt nach Zählung + Foto-Anzeige**
+
+Neue Imports:
+```jsx
+import { uploadSessionPhoto, getSessionPhotos, getLastFridgePhoto } from '../lib/photos';
+```
+
+Neue States:
+```jsx
+const [photos, setPhotos] = useState([]);
+const [lastFridgePhoto, setLastFridgePhoto] = useState(null);
+const [photoUploading, setPhotoUploading] = useState(false);
+const [showPhotoPrompt, setShowPhotoPrompt] = useState(true);
+```
+
+In `load()` ergänzen:
+```jsx
+const p = await getSessionPhotos(Number(sessionId));
+setPhotos(p);
+const lastPhoto = await getLastFridgePhoto(s.fridgeId);
+// Nur das letzte Foto anzeigen wenn es nicht von dieser Session ist
+if (lastPhoto && !p.find((x) => x.id === lastPhoto.id)) {
+  setLastFridgePhoto(lastPhoto);
+}
+```
+
+Foto-Handler:
+```jsx
+async function handlePhotoCapture(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  setPhotoUploading(true);
+  try {
+    await uploadSessionPhoto(Number(sessionId), file);
+    const updated = await getSessionPhotos(Number(sessionId));
+    setPhotos(updated);
+    setShowPhotoPrompt(false);
+  } catch (err) {
+    alert('Foto-Upload fehlgeschlagen: ' + err.message);
+  } finally {
+    setPhotoUploading(false);
+  }
+}
+```
+
+Im JSX — Foto-Bereich nach der Zusammenfassung, vor Drucken-Card:
+```jsx
+{/* Vergleichsfoto aus letzter Zählung */}
+{lastFridgePhoto && (
+  <div className="card">
+    <h2>Letzte Aufnahme zum Vergleich</h2>
+    <img
+      src={lastFridgePhoto.url}
+      alt="Letzte Zählung"
+      style={{ width: '100%', borderRadius: 8 }}
+    />
+    <p className="muted">{new Date(lastFridgePhoto.createdAt).toLocaleString('de-AT')}</p>
+  </div>
+)}
+
+{/* Aktuelles Foto */}
+<div className="card">
+  <h2>Foto dieser Zählung</h2>
+  {showPhotoPrompt && photos.length === 0 && (
+    <p className="muted">Foto vom Kühlgerät machen zur Dokumentation?</p>
+  )}
+  {photos.map((p) => (
+    <img key={p.id} src={p.url} alt="Zählfoto" style={{ width: '100%', borderRadius: 8, marginBottom: '0.5rem' }} />
+  ))}
+  <label className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer' }}>
+    {photoUploading ? 'Hochladen...' : photos.length > 0 ? 'Weiteres Foto' : 'Foto aufnehmen'}
+    <input
+      type="file"
+      accept="image/*"
+      capture="environment"
+      style={{ display: 'none' }}
+      onChange={handlePhotoCapture}
+      disabled={photoUploading}
+    />
+  </label>
+</div>
+```
+
+- [ ] **Step 4: Testen**
+
+1. Zählung abschließen → Summary-Screen → "Foto aufnehmen"-Button
+2. Kamera öffnet sich → Foto aufnehmen → wird hochgeladen + angezeigt
+3. Nächste Zählung desselben Kühlgeräts → letzte Aufnahme erscheint als Vergleich
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/lib/photos.js src/pages/Summary.jsx
+git commit -m "feat: add photo documentation with Supabase Storage and comparison view"
+```
+
+---
+
+## Self-Review: Spec-Abdeckung
+
+| Anforderung aus PLANNING.md | Task |
+|----------------------------|------|
+| Owner-Login (Supabase Auth) | C1 |
+| Team-QR-Code pro Tag/Event | D1, D2 |
+| QR-Code läuft ab am Event-Ende | D1 (valid_until = Mitternacht) |
+| Sperre: nur ein Kühlgerät gleichzeitig | E1 |
+| Sperranzeige live für andere | E1 (Realtime) |
+| Timeout 20 Min. Inaktivität | E1 (pg_cron) |
+| Anfangsstand / Endstand explizit | B1 |
+| Diff: letzter Endstand als Basis | B1 (getLastEndstandForFridge) |
+| Korrektur-Modus bei Doppel-Zählung | B2 |
+| Foto nach Zählabschluss | F1 |
+| Foto gespeichert in Storage | F1 |
+| Foto aus letzter Zählung als Vergleich | F1 |
+| Supabase Backend-Migration | A2, A3 |
+| Cascade-Löschung (Event → Fridges → Sessions) | A2 (FK cascade) |
+
+Alle Anforderungen abgedeckt. ✓
