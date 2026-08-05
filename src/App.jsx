@@ -70,6 +70,7 @@ export default function App() {
         <Route path="/team/:code" element={<TeamAccess />} />
         <Route path="/team/:code/count/:fridgeId" element={<Counting />} />
         <Route path="/team/:code/summary/:sessionId" element={<Summary />} />
+        <Route path="/team/:code/correct/:sessionId/:productId" element={<Correction />} />
 
         {/* Owner auth gate */}
         <Route path="*" element={<OwnerGate user={user} />} />

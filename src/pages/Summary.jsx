@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { getSession, getEvent, getFridgesForEvent, getSessionsForFridge, getFridgeById } from '../lib/db';
 import { formatDateTime } from '../lib/units';
 import {
@@ -13,6 +13,9 @@ import { uploadSessionPhoto, getSessionPhotos, getLastFridgePhoto } from '../lib
 
 export default function Summary() {
   const { sessionId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isTeamRoute = location.pathname.startsWith('/team/');
   const [session, setSession] = useState(null);
   const [event, setEvent] = useState(null);
   const [fridge, setFridge] = useState(null);
@@ -112,9 +115,11 @@ export default function Summary() {
 
   return (
     <div className="page">
-      <Link to={`/event/${event.id}`} className="back-link">
-        ← Zurück zur Veranstaltung
-      </Link>
+      {isTeamRoute ? (
+        <button className="btn-link back-link" onClick={() => navigate(-1)}>← Zurück</button>
+      ) : (
+        <Link to={`/event/${event.id}`} className="back-link">← Zurück zur Veranstaltung</Link>
+      )}
       <h1>
         {fridge.label} — {session.label}
       </h1>

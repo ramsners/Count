@@ -4,7 +4,7 @@ import { getSession, getEvent, getAllProducts, updateSession, getFridgeById } fr
 import { computeTotal } from '../lib/units';
 
 export default function Correction() {
-  const { sessionId, productId } = useParams();
+  const { sessionId, productId, code } = useParams();
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [event, setEvent] = useState(null);
@@ -57,7 +57,10 @@ export default function Correction() {
               <button
                 className="btn-secondary"
                 style={{ width: '100%', textAlign: 'left' }}
-                onClick={() => navigate(`/correct/${sessionId}/${e.productId}`)}
+                onClick={() => code
+                  ? navigate(`/team/${code}/correct/${sessionId}/${e.productId}`)
+                  : navigate(`/correct/${sessionId}/${e.productId}`)
+                }
               >
                 <strong>{e.productName}</strong>
                 <span className="muted"> — aktuell: {e.total} Stk.</span>
@@ -94,7 +97,11 @@ export default function Correction() {
       };
     });
     await updateSession({ ...session, entries: updatedEntries });
-    navigate(`/summary/${sessionId}`);
+    if (code) {
+      navigate(`/team/${code}/summary/${sessionId}`);
+    } else {
+      navigate(`/summary/${sessionId}`);
+    }
   }
 
   return (

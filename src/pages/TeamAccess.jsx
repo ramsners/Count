@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getValidAccessCode } from '../lib/accessCodes';
-import { getEvent, getFridgesForEvent, getSessionsForFridge } from '../lib/db';
+import { getEvent, getFridgesForEvent, getSessionsForFridge, getSessionsForFridgeOnDate } from '../lib/db';
 import { formatDateTime } from '../lib/units';
 
 export default function TeamAccess() {
@@ -16,6 +16,17 @@ export default function TeamAccess() {
   useEffect(() => {
     validate();
   }, [code]);
+
+  async function startCounting(fridgeId, type) {
+    const today = new Date().toISOString().slice(0, 10);
+    const todaysSessions = await getSessionsForFridgeOnDate(fridgeId, today);
+    const existing = todaysSessions.find((s) => s.label === type);
+    if (existing) {
+      navigate(`/team/${code}/correct/${existing.id}/choose`);
+    } else {
+      navigate(`/team/${code}/count/${fridgeId}?type=${type}&teamCode=${code}`);
+    }
+  }
 
   async function validate() {
     const result = await getValidAccessCode(code);
@@ -70,17 +81,13 @@ export default function TeamAccess() {
                 </p>
                 <button
                   className="btn-primary"
-                  onClick={() =>
-                    navigate(`/team/${code}/count/${f.id}?type=Anfangsstand&teamCode=${code}`)
-                  }
+                  onClick={() => startCounting(f.id, 'Anfangsstand')}
                 >
                   Anfangsstand zählen
                 </button>
                 <button
                   className="btn-secondary"
-                  onClick={() =>
-                    navigate(`/team/${code}/count/${f.id}?type=Endstand&teamCode=${code}`)
-                  }
+                  onClick={() => startCounting(f.id, 'Endstand')}
                 >
                   Endstand zählen
                 </button>
