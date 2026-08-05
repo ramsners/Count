@@ -1,132 +1,194 @@
-import { openDB } from 'idb';
+import supabase from './supabase';
 
-const DB_NAME = 'festwerk-stand';
-const DB_VERSION = 1;
+function throwIfError({ error }, context) {
+  if (error) throw new Error(`[db.js] ${context}: ${error.message}`);
+}
 
-export async function getDB() {
-  return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      // Produktpalette (global, wird pro Event nur ausgewählt)
-      if (!db.objectStoreNames.contains('products')) {
-        const store = db.createObjectStore('products', { keyPath: 'id', autoIncrement: true });
-        store.createIndex('name', 'name');
-      }
-      // Veranstaltungen
-      if (!db.objectStoreNames.contains('events')) {
-        db.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
-      }
-      // Kühlgeräte (gehören zu einem Event)
-      if (!db.objectStoreNames.contains('fridges')) {
-        const store = db.createObjectStore('fridges', { keyPath: 'id', autoIncrement: true });
-        store.createIndex('eventId', 'eventId');
-      }
-      // Zähl-Sessions (ein Zählvorgang für ein Kühlgerät zu einem Zeitpunkt)
-      if (!db.objectStoreNames.contains('sessions')) {
-        const store = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
-        store.createIndex('fridgeId', 'fridgeId');
-        store.createIndex('eventId', 'eventId');
-      }
-    },
-  });
+function mapEvent(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    dateStart: row.date_start,
+    dateEnd: row.date_end,
+    productIds: row.product_ids ?? [],
+    createdAt: row.created_at,
+  };
+}
+
+function mapFridge(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    type: row.type,
+    label: row.label,
+    createdAt: row.created_at,
+  };
+}
+
+function mapSession(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    fridgeId: row.fridge_id,
+    timestamp: row.timestamp,
+    label: row.label,
+    entries: row.entries ?? [],
+  };
 }
 
 // ---------- Products ----------
 export async function addProduct(product) {
-  const db = await getDB();
-  // product: { name, gebinde: [{label, units}] }
-  return db.add('products', product);
+  const result = await supabase
+    .from('products')
+    .insert({ name: product.name, gebinde: product.gebinde })
+    .select()
+    .single();
+  throwIfError(result, 'addProduct');
+  return result.data.id;
 }
 
 export async function updateProduct(product) {
-  const db = await getDB();
-  return db.put('products', product);
+  const result = await supabase
+    .from('products')
+    .update({ name: product.name, gebinde: product.gebinde })
+    .eq('id', product.id);
+  throwIfError(result, 'updateProduct');
 }
 
 export async function deleteProduct(id) {
-  const db = await getDB();
-  return db.delete('products', id);
+  const result = await supabase.from('products').delete().eq('id', id);
+  throwIfError(result, 'deleteProduct');
 }
 
 export async function getAllProducts() {
-  const db = await getDB();
-  return db.getAll('products');
+  const result = await supabase.from('products').select('*').order('name');
+  throwIfError(result, 'getAllProducts');
+  return result.data;
 }
 
 // ---------- Events ----------
 export async function addEvent(event) {
-  const db = await getDB();
-  // event: { name, dateStart, dateEnd, productIds: [] }
-  return db.add('events', event);
+  const result = await supabase
+    .from('events')
+    .insert({
+      name: event.name,
+      date_start: event.dateStart ?? null,
+      date_end: event.dateEnd ?? null,
+      product_ids: event.productIds ?? [],
+    })
+    .select()
+    .single();
+  throwIfError(result, 'addEvent');
+  return result.data.id;
 }
 
 export async function updateEvent(event) {
-  const db = await getDB();
-  return db.put('events', event);
+  const result = await supabase
+    .from('events')
+    .update({
+      name: event.name,
+      date_start: event.dateStart ?? null,
+      date_end: event.dateEnd ?? null,
+      product_ids: event.productIds ?? [],
+    })
+    .eq('id', event.id);
+  throwIfError(result, 'updateEvent');
 }
 
 export async function getEvent(id) {
-  const db = await getDB();
-  return db.get('events', id);
+  const result = await supabase.from('events').select('*').eq('id', id).single();
+  throwIfError(result, 'getEvent');
+  return mapEvent(result.data);
 }
 
 export async function getAllEvents() {
-  const db = await getDB();
-  return db.getAll('events');
+  const result = await supabase
+    .from('events')
+    .select('*')
+    .order('date_start', { ascending: false });
+  throwIfError(result, 'getAllEvents');
+  return result.data.map(mapEvent);
 }
 
 export async function deleteEvent(id) {
-  const db = await getDB();
-  const tx = db.transaction(['events', 'fridges', 'sessions'], 'readwrite');
-  await tx.objectStore('events').delete(id);
-  const fridges = await tx.objectStore('fridges').index('eventId').getAll(id);
-  for (const f of fridges) {
-    await tx.objectStore('fridges').delete(f.id);
-    const sessions = await tx.objectStore('sessions').index('fridgeId').getAll(f.id);
-    for (const s of sessions) {
-      await tx.objectStore('sessions').delete(s.id);
-    }
-  }
-  await tx.done;
+  // Cascade deletes fridges + sessions automatically (FK on delete cascade)
+  const result = await supabase.from('events').delete().eq('id', id);
+  throwIfError(result, 'deleteEvent');
 }
 
 // ---------- Fridges ----------
 export async function addFridge(fridge) {
-  // fridge: { eventId, type: 'Kühlschrank' | 'Kühltruhe', label auto-generated }
-  const db = await getDB();
-  const existing = await db.getAllFromIndex('fridges', 'eventId', fridge.eventId);
+  const existing = await getFridgesForEvent(fridge.eventId);
   const prefix = fridge.type === 'Kühltruhe' ? 'T' : 'K';
   const countOfType = existing.filter((f) => f.type === fridge.type).length;
   const label = `${prefix}${countOfType + 1}`;
-  return db.add('fridges', { ...fridge, label });
+  const result = await supabase
+    .from('fridges')
+    .insert({ event_id: fridge.eventId, type: fridge.type, label })
+    .select()
+    .single();
+  throwIfError(result, 'addFridge');
+  return result.data.id;
 }
 
 export async function getFridgesForEvent(eventId) {
-  const db = await getDB();
-  return db.getAllFromIndex('fridges', 'eventId', eventId);
+  const result = await supabase
+    .from('fridges')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('label');
+  throwIfError(result, 'getFridgesForEvent');
+  return result.data.map(mapFridge);
 }
 
 export async function deleteFridge(id) {
-  const db = await getDB();
-  const tx = db.transaction(['fridges', 'sessions'], 'readwrite');
-  await tx.objectStore('fridges').delete(id);
-  const sessions = await tx.objectStore('sessions').index('fridgeId').getAll(id);
-  for (const s of sessions) {
-    await tx.objectStore('sessions').delete(s.id);
-  }
-  await tx.done;
+  // Cascade deletes sessions automatically
+  const result = await supabase.from('fridges').delete().eq('id', id);
+  throwIfError(result, 'deleteFridge');
 }
 
-// ---------- Sessions (Zählvorgänge) ----------
+export async function getFridgeById(id) {
+  const result = await supabase.from('fridges').select('*').eq('id', id).single();
+  throwIfError(result, 'getFridgeById');
+  return mapFridge(result.data);
+}
+
+// ---------- Sessions ----------
 export async function addSession(session) {
-  // session: { eventId, fridgeId, timestamp, label ('Anfangsstand'|'Endstand'|...), entries: [{productId, loose, gebindeCounts: {gebindeLabel: n}, total}] }
-  const db = await getDB();
-  return db.add('sessions', session);
+  const result = await supabase
+    .from('sessions')
+    .insert({
+      event_id: session.eventId,
+      fridge_id: session.fridgeId,
+      timestamp: session.timestamp,
+      label: session.label,
+      entries: session.entries,
+    })
+    .select()
+    .single();
+  throwIfError(result, 'addSession');
+  return result.data.id;
+}
+
+export async function updateSession(session) {
+  const result = await supabase
+    .from('sessions')
+    .update({ entries: session.entries, label: session.label })
+    .eq('id', session.id);
+  throwIfError(result, 'updateSession');
 }
 
 export async function getSessionsForFridge(fridgeId) {
-  const db = await getDB();
-  const sessions = await db.getAllFromIndex('sessions', 'fridgeId', fridgeId);
-  return sessions.sort((a, b) => a.timestamp - b.timestamp);
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .order('timestamp');
+  throwIfError(result, 'getSessionsForFridge');
+  return result.data.map(mapSession);
 }
 
 export async function getLastSessionForFridge(fridgeId) {
@@ -134,7 +196,35 @@ export async function getLastSessionForFridge(fridgeId) {
   return sessions.length ? sessions[sessions.length - 1] : null;
 }
 
+export async function getLastEndstandForFridge(fridgeId) {
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .eq('label', 'Endstand')
+    .order('timestamp', { ascending: false })
+    .limit(1);
+  throwIfError(result, 'getLastEndstandForFridge');
+  return result.data.length ? mapSession(result.data[0]) : null;
+}
+
+export async function getSessionsForFridgeOnDate(fridgeId, dateStr) {
+  // dateStr: 'YYYY-MM-DD', filter by unix ms timestamp range
+  const from = new Date(dateStr + 'T00:00:00').getTime();
+  const to = new Date(dateStr + 'T23:59:59').getTime();
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('fridge_id', fridgeId)
+    .gte('timestamp', from)
+    .lte('timestamp', to)
+    .order('timestamp');
+  throwIfError(result, 'getSessionsForFridgeOnDate');
+  return result.data.map(mapSession);
+}
+
 export async function getSession(id) {
-  const db = await getDB();
-  return db.get('sessions', id);
+  const result = await supabase.from('sessions').select('*').eq('id', id).single();
+  throwIfError(result, 'getSession');
+  return mapSession(result.data);
 }
