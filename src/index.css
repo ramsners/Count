@@ -302,3 +302,11 @@ h2 {
   flex-direction: column;
   gap: 1rem;
 }
+
+.lock-badge {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}

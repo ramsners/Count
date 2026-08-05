@@ -8,6 +8,7 @@ import {
   addSession,
 } from '../lib/db';
 import { computeTotal } from '../lib/units';
+import { lockFridge, unlockFridge } from '../lib/locks';
 
 export default function Counting() {
   const { fridgeId } = useParams();
@@ -27,11 +28,23 @@ export default function Counting() {
     load();
   }, [fridgeId]);
 
+  useEffect(() => {
+    return () => { unlockFridge(Number(fridgeId)); };
+  }, [fridgeId]);
+
   async function load() {
     setLoading(true);
     const allProducts = await getAllProducts();
     const fr = await getFridgeById(Number(fridgeId));
     setFridge(fr);
+    // Lock setzen
+    const lockName = navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC';
+    const locked = await lockFridge(Number(fridgeId), fr.eventId, lockName);
+    if (!locked) {
+      alert('Dieses Kühlgerät wird gerade von jemand anderem gezählt!');
+      navigate(-1);
+      return;
+    }
     const ev = await getEvent(fr.eventId);
     setEvent(ev);
     const eventProducts = allProducts.filter((p) => ev.productIds.includes(p.id));
@@ -120,6 +133,7 @@ export default function Counting() {
       entries: finalEntries,
     };
     const id = await addSession(session);
+    await unlockFridge(fridge.id);
     const teamCode = searchParams.get('teamCode');
     if (teamCode) {
       navigate(`/team/${teamCode}/summary/${id}`);

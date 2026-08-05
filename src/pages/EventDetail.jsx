@@ -11,6 +11,7 @@ import {
 import { formatDateTime } from '../lib/units';
 import QRCode from 'qrcode';
 import { generateAccessCode, listAccessCodesForEvent, deleteAccessCode } from '../lib/accessCodes';
+import { subscribeFridgeLocks, getFridgeLock } from '../lib/locks';
 
 export default function EventDetail() {
   const { eventId } = useParams();
@@ -22,9 +23,15 @@ export default function EventDetail() {
   const [accessCodes, setAccessCodes] = useState([]);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
+  const [fridgeLocks, setFridgeLocks] = useState({}); // fridgeId -> FridgeLock|null
 
   useEffect(() => {
     load();
+  }, [eventId]);
+
+  useEffect(() => {
+    const unsub = subscribeFridgeLocks(Number(eventId), load);
+    return unsub;
   }, [eventId]);
 
   async function load() {
@@ -38,6 +45,11 @@ export default function EventDetail() {
       counts[f.id] = sessions;
     }
     setSessionCounts(counts);
+    const locks = {};
+    for (const f of fr) {
+      locks[f.id] = await getFridgeLock(f.id);
+    }
+    setFridgeLocks(locks);
     await loadAccessCodes();
   }
 
@@ -131,12 +143,18 @@ export default function EventDetail() {
                     ? 'Noch nicht gezählt'
                     : `Letzte Zählung: ${last.label} — ${formatDateTime(last.timestamp)}`}
                 </p>
-                <button
-                  className="btn-primary"
-                  onClick={() => setCountTypeModal(f.id)}
-                >
-                  Neue Zählung starten
-                </button>
+                {fridgeLocks[f.id] && !fridgeLocks[f.id].isOwnLock ? (
+                  <div className="lock-badge">
+                    🔒 Wird gezählt von: {fridgeLocks[f.id].lockedByName}
+                  </div>
+                ) : (
+                  <button
+                    className="btn-primary"
+                    onClick={() => setCountTypeModal(f.id)}
+                  >
+                    Neue Zählung starten
+                  </button>
+                )}
                 {sessions.length > 0 && (
                   <button
                     className="btn-secondary"
