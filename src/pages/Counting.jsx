@@ -120,7 +120,12 @@ export default function Counting() {
       entries: finalEntries,
     };
     const id = await addSession(session);
-    navigate(`/summary/${id}`);
+    const teamCode = searchParams.get('teamCode');
+    if (teamCode) {
+      navigate(`/team/${teamCode}/summary/${id}`);
+    } else {
+      navigate(`/summary/${id}`);
+    }
   }
 
   return (
