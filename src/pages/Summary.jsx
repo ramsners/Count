@@ -9,6 +9,7 @@ import {
   isWebBluetoothSupported,
   printReceipt,
 } from '../lib/printer';
+import { uploadSessionPhoto, getSessionPhotos, getLastFridgePhoto } from '../lib/photos';
 
 export default function Summary() {
   const { sessionId } = useParams();
@@ -18,6 +19,10 @@ export default function Summary() {
   const [previousSession, setPreviousSession] = useState(null);
   const [printerStatus, setPrinterStatus] = useState('nicht verbunden');
   const [printing, setPrinting] = useState(false);
+  const [photos, setPhotos] = useState([]);
+  const [lastFridgePhoto, setLastFridgePhoto] = useState(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [showPhotoPrompt, setShowPhotoPrompt] = useState(true);
 
   useEffect(() => {
     load();
@@ -34,6 +39,14 @@ export default function Summary() {
     const allSessions = await getSessionsForFridge(s.fridgeId);
     const idx = allSessions.findIndex((x) => x.id === s.id);
     setPreviousSession(idx > 0 ? allSessions[idx - 1] : null);
+
+    const p = await getSessionPhotos(Number(sessionId));
+    setPhotos(p);
+    const lastPhoto = await getLastFridgePhoto(s.fridgeId);
+    // Nur das letzte Foto anzeigen wenn es nicht von dieser Session ist
+    if (lastPhoto && !p.find((x) => x.id === lastPhoto.id)) {
+      setLastFridgePhoto(lastPhoto);
+    }
   }
 
   const diffWarnings = [];
@@ -46,6 +59,22 @@ export default function Summary() {
           diffWarnings.push({ productName: e.productName, diff });
         }
       }
+    }
+  }
+
+  async function handlePhotoCapture(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      await uploadSessionPhoto(Number(sessionId), file);
+      const updated = await getSessionPhotos(Number(sessionId));
+      setPhotos(updated);
+      setShowPhotoPrompt(false);
+    } catch (err) {
+      alert('Foto-Upload fehlgeschlagen: ' + err.message);
+    } finally {
+      setPhotoUploading(false);
     }
   }
 
@@ -124,6 +153,41 @@ export default function Summary() {
           </ul>
         </div>
       )}
+
+      {/* Vergleichsfoto aus letzter Zählung */}
+      {lastFridgePhoto && (
+        <div className="card">
+          <h2>Letzte Aufnahme zum Vergleich</h2>
+          <img
+            src={lastFridgePhoto.url}
+            alt="Letzte Zählung"
+            style={{ width: '100%', borderRadius: 8 }}
+          />
+          <p className="muted">{new Date(lastFridgePhoto.createdAt).toLocaleString('de-AT')}</p>
+        </div>
+      )}
+
+      {/* Aktuelles Foto */}
+      <div className="card">
+        <h2>Foto dieser Zählung</h2>
+        {showPhotoPrompt && photos.length === 0 && (
+          <p className="muted">Foto vom Kühlgerät machen zur Dokumentation?</p>
+        )}
+        {photos.map((p) => (
+          <img key={p.id} src={p.url} alt="Zählfoto" style={{ width: '100%', borderRadius: 8, marginBottom: '0.5rem' }} />
+        ))}
+        <label className="btn-secondary" style={{ display: 'inline-block', cursor: 'pointer' }}>
+          {photoUploading ? 'Hochladen...' : photos.length > 0 ? 'Weiteres Foto' : 'Foto aufnehmen'}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            onChange={handlePhotoCapture}
+            disabled={photoUploading}
+          />
+        </label>
+      </div>
 
       <div className="card">
         <h2>Drucken</h2>
