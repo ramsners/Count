@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getSession, getEvent, getFridgesForEvent, getSessionsForFridge, getDB } from '../lib/db';
+import { getSession, getEvent, getFridgesForEvent, getSessionsForFridge, getFridgeById } from '../lib/db';
 import { formatDateTime } from '../lib/units';
 import {
   connectPrinter,
@@ -28,8 +28,7 @@ export default function Summary() {
     setSession(s);
     const ev = await getEvent(s.eventId);
     setEvent(ev);
-    const db = await getDB();
-    const fr = await db.get('fridges', s.fridgeId);
+    const fr = await getFridgeById(s.fridgeId);
     setFridge(fr);
 
     const allSessions = await getSessionsForFridge(s.fridgeId);

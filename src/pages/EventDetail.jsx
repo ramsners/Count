@@ -15,6 +15,7 @@ export default function EventDetail() {
   const [event, setEvent] = useState(null);
   const [fridges, setFridges] = useState([]);
   const [sessionCounts, setSessionCounts] = useState({});
+  const [countTypeModal, setCountTypeModal] = useState(null);
 
   useEffect(() => {
     load();
@@ -91,7 +92,7 @@ export default function EventDetail() {
                 </p>
                 <button
                   className="btn-primary"
-                  onClick={() => navigate(`/count/${f.id}`)}
+                  onClick={() => setCountTypeModal(f.id)}
                 >
                   Neue Zählung starten
                 </button>
@@ -108,6 +109,36 @@ export default function EventDetail() {
           })}
         </ul>
       </div>
+      {countTypeModal && (
+        <div className="modal-overlay" onClick={() => setCountTypeModal(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Welcher Zähltyp?</h3>
+            <div className="row">
+              <button
+                className="btn-primary big"
+                onClick={() => {
+                  setCountTypeModal(null);
+                  navigate(`/count/${countTypeModal}?type=Anfangsstand`);
+                }}
+              >
+                Anfangsstand
+              </button>
+              <button
+                className="btn-secondary big"
+                onClick={() => {
+                  setCountTypeModal(null);
+                  navigate(`/count/${countTypeModal}?type=Endstand`);
+                }}
+              >
+                Endstand
+              </button>
+            </div>
+            <button className="btn-link" onClick={() => setCountTypeModal(null)}>
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

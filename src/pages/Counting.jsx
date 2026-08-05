@@ -1,25 +1,26 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   getAllProducts,
   getEvent,
-  getFridgesForEvent,
-  getLastSessionForFridge,
+  getFridgeById,
+  getLastEndstandForFridge,
   addSession,
-  getDB,
 } from '../lib/db';
 import { computeTotal } from '../lib/units';
 
 export default function Counting() {
   const { fridgeId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const countType = searchParams.get('type') || 'Anfangsstand';
 
   const [fridge, setFridge] = useState(null);
   const [event, setEvent] = useState(null);
-  const [products, setProducts] = useState([]); // nur die für dieses Event ausgewählten
-  const [lastSession, setLastSession] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [lastEndstand, setLastEndstand] = useState(null);
   const [step, setStep] = useState(0);
-  const [entries, setEntries] = useState({}); // productId -> { loose, gebindeCounts }
+  const [entries, setEntries] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,17 +30,14 @@ export default function Counting() {
   async function load() {
     setLoading(true);
     const allProducts = await getAllProducts();
-    const db = await getDB();
-    const fr = await db.get('fridges', Number(fridgeId));
+    const fr = await getFridgeById(Number(fridgeId));
     setFridge(fr);
     const ev = await getEvent(fr.eventId);
     setEvent(ev);
     const eventProducts = allProducts.filter((p) => ev.productIds.includes(p.id));
     setProducts(eventProducts);
-
-    const last = await getLastSessionForFridge(Number(fridgeId));
-    setLastSession(last);
-
+    const last = await getLastEndstandForFridge(Number(fridgeId));
+    setLastEndstand(last);
     const initialEntries = {};
     eventProducts.forEach((p) => {
       initialEntries[p.id] = { loose: '', gebindeCounts: {} };
@@ -80,14 +78,13 @@ export default function Counting() {
 
   const currentTotal = computeTotal(entry.loose, entry.gebindeCounts, product);
 
-  // Live-Warnung: Vergleich mit letztem Zählstand desselben Produkts in diesem Kühlgerät
   let diffWarning = null;
-  if (lastSession) {
-    const lastEntry = lastSession.entries.find((e) => e.productId === product.id);
+  if (lastEndstand && countType === 'Anfangsstand') {
+    const lastEntry = lastEndstand.entries.find((e) => e.productId === product.id);
     if (lastEntry) {
       const diff = currentTotal - lastEntry.total;
       if (diff < 0) {
-        diffWarning = `Minus ${Math.abs(diff)} gegenüber letzter Zählung (${lastEntry.total} → ${currentTotal})`;
+        diffWarning = `Minus ${Math.abs(diff)} gegenüber letztem Endstand (${lastEntry.total} → ${currentTotal})`;
       }
     }
   }
@@ -115,15 +112,11 @@ export default function Counting() {
         total: computeTotal(e.loose, e.gebindeCounts, p),
       };
     });
-
-    const isFirstSession = !lastSession;
-    const label = isFirstSession ? 'Anfangsstand' : 'Zählung';
-
     const session = {
       eventId: event.id,
       fridgeId: fridge.id,
       timestamp: Date.now(),
-      label,
+      label: countType,
       entries: finalEntries,
     };
     const id = await addSession(session);
@@ -136,6 +129,7 @@ export default function Counting() {
         <span className="muted">
           {fridge.label} — {event.name}
         </span>
+        <span className="counting-type-badge">{countType}</span>
         <span className="muted">
           {step + 1} / {products.length}
         </span>
