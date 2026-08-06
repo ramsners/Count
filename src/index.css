@@ -90,6 +90,7 @@ h2 {
   flex-direction: column;
   font-size: 0.85rem;
   flex: 1;
+  min-width: 160px;
 }
 
 .btn-primary,
@@ -309,4 +310,151 @@ h2 {
   border-radius: 6px;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+}
+
+.action-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.action-nav .btn-primary,
+.action-nav .btn-secondary,
+.action-nav a.btn-primary,
+.action-nav a.btn-secondary {
+  display: block;
+  width: 100%;
+  text-align: center;
+  text-decoration: none;
+  padding: 16px;
+  font-size: 1.1rem;
+}
+
+.day-list-expand {
+  padding: 0.5rem 0 0.25rem;
+  border-top: 1px solid #eee;
+  margin-top: 0.5rem;
+}
+
+.day-list-expand ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.day-list-expand a {
+  display: inline-block;
+  padding: 6px 12px;
+  background: #f0f0f5;
+  border-radius: 8px;
+  color: #1a1a1a;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.day-list-expand a:hover {
+  background: #e0e0ea;
+}
+
+/* Status-Chips (DaySummary: A = Anfangsstand, E = Endstand) */
+.status-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.status-chip.green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.status-chip.blue {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+/* ── Mobile ──────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Bottom navigation bar */
+  .nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 50;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+  }
+
+  .nav a {
+    flex: 1;
+    text-align: center;
+    border-radius: 0;
+    padding: 14px 8px;
+    font-size: 0.82rem;
+  }
+
+  .nav .nav-signout {
+    flex: 0 0 auto;
+    font-size: 0.82rem;
+    margin-left: 0;
+    padding: 14px 16px;
+    color: #aaa;
+    border-left: 1px solid rgba(255,255,255,0.1);
+  }
+
+  /* Push page content above the bottom nav */
+  .page {
+    padding-bottom: 80px;
+  }
+
+  /* Bigger touch targets for all buttons on mobile */
+  .btn-primary,
+  .btn-secondary {
+    min-height: 48px;
+    padding: 14px 18px;
+  }
+
+  .btn-primary.big,
+  .btn-secondary.big {
+    min-height: 64px;
+    padding: 20px;
+    font-size: 1.2rem;
+  }
+
+  /* Action nav stacks full-width, tighter gap */
+  .action-nav {
+    gap: 0.5rem;
+  }
+
+  /* Summary table scrolls on tiny screens */
+  .summary-table {
+    font-size: 0.9rem;
+  }
+
+  /* Cards less padding on tiny screens */
+  .card {
+    padding: 12px;
+    margin: 12px 0;
+    border-radius: 10px;
+  }
+
+  /* h1 slightly smaller */
+  h1 {
+    font-size: 1.35rem;
+  }
 }

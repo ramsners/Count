@@ -12,7 +12,20 @@ export function getDeviceId() {
 
 export async function lockFridge(fridgeId, eventId, lockedByName) {
   const lockedBy = getDeviceId();
-  // Upsert: wenn schon gesperrt, schlägt dies fehl (unique constraint auf fridge_id)
+
+  // Erst prüfen ob bereits ein Lock existiert (behandelt React StrictMode Doppel-Mount)
+  const existing = await supabase
+    .from('fridge_locks')
+    .select('locked_by')
+    .eq('fridge_id', fridgeId)
+    .maybeSingle();
+
+  if (existing.data) {
+    // Lock existiert — gehört er uns?
+    return existing.data.locked_by === lockedBy;
+  }
+
+  // Kein Lock — jetzt setzen
   const result = await supabase
     .from('fridge_locks')
     .insert({ fridge_id: fridgeId, event_id: eventId, locked_by: lockedBy, locked_by_name: lockedByName })

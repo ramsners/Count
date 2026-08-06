@@ -5,7 +5,7 @@ export async function uploadSessionPhoto(sessionId, file) {
   const path = `sessions/${sessionId}/${Date.now()}.jpg`;
   const { error: uploadError } = await supabase.storage
     .from('session-photos')
-    .upload(path, file, { contentType: 'image/jpeg', upsert: false });
+    .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
   if (uploadError) throw new Error(uploadError.message);
 
   const result = await supabase

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import Products from './pages/Products';
 import Events from './pages/Events';
 import EventDetail from './pages/EventDetail';
+import DaySummary from './pages/DaySummary';
+import Tagesabschluss from './pages/Tagesabschluss';
 import Counting from './pages/Counting';
 import Summary from './pages/Summary';
 import Correction from './pages/Correction';
@@ -22,7 +24,7 @@ function Nav() {
     <nav className="nav">
       <Link to="/events">Veranstaltungen</Link>
       <Link to="/products">Produkte</Link>
-      <button className="btn-link" onClick={signOut} style={{ marginLeft: 'auto' }}>
+      <button className="btn-link nav-signout" onClick={signOut} style={{ marginLeft: 'auto' }}>
         Abmelden
       </button>
     </nav>
@@ -36,6 +38,8 @@ function OwnerApp() {
       <Route path="/events" element={<Events />} />
       <Route path="/products" element={<Products />} />
       <Route path="/event/:eventId" element={<EventDetail />} />
+      <Route path="/event/:eventId/day/:dateStr" element={<DaySummary />} />
+      <Route path="/event/:eventId/day/:dateStr/abschluss" element={<Tagesabschluss />} />
       <Route path="/count/:fridgeId" element={<Counting />} />
       <Route path="/summary/:sessionId" element={<Summary />} />
       <Route path="/correct/:sessionId/:productId" element={<Correction />} />

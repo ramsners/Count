@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getAllEvents, addEvent, getAllProducts, deleteEvent } from '../lib/db';
+import { generateDateRange } from '../lib/units';
 
 export default function Events() {
   const [events, setEvents] = useState([]);
@@ -10,6 +11,8 @@ export default function Events() {
   const [dateEnd, setDateEnd] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [expandedEventId, setExpandedEventId] = useState(null);
+  const [eventDates, setEventDates] = useState({});
 
   useEffect(() => {
     load();
@@ -25,6 +28,19 @@ export default function Events() {
     setSelectedProductIds((prev) =>
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
     );
+  }
+
+  function toggleDays(ev) {
+    const evId = ev.id;
+    if (expandedEventId === evId) {
+      setExpandedEventId(null);
+      return;
+    }
+    setExpandedEventId(evId);
+    if (!eventDates[evId]) {
+      const dates = generateDateRange(ev.dateStart, ev.dateEnd);
+      setEventDates((prev) => ({ ...prev, [evId]: dates }));
+    }
   }
 
   async function createEvent() {
@@ -52,6 +68,14 @@ export default function Events() {
       await deleteEvent(id);
       load();
     }
+  }
+
+  function formatDay(dateStr) {
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString('de-AT', {
+      weekday: 'short',
+      day: '2-digit',
+      month: '2-digit',
+    });
   }
 
   return (
@@ -128,22 +152,46 @@ export default function Events() {
         <h2>Bestehende Veranstaltungen</h2>
         <ul className="product-list">
           {events.map((ev) => (
-            <li key={ev.id}>
-              <div>
-                <Link to={`/event/${ev.id}`}>
-                  <strong>{ev.name}</strong>
-                </Link>
-                <span className="muted">
-                  {' '}
-                  {ev.dateStart ? `— ${ev.dateStart}${ev.dateEnd && ev.dateEnd !== ev.dateStart ? ` bis ${ev.dateEnd}` : ''}` : ''}
-                  {' '}— {ev.productIds.length} Produkte
-                </span>
+            <li key={ev.id} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Link to={`/event/${ev.id}`}>
+                    <strong>{ev.name}</strong>
+                  </Link>
+                  <div className="muted" style={{ marginTop: 2 }}>
+                    {ev.dateStart
+                      ? `${ev.dateStart}${ev.dateEnd && ev.dateEnd !== ev.dateStart ? ` – ${ev.dateEnd}` : ''}`
+                      : ''}
+                    {' '}— {ev.productIds.length} Produkte
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
+                  <button className="btn-link" onClick={() => toggleDays(ev)}>
+                    Tage {expandedEventId === ev.id ? '▲' : '▼'}
+                  </button>
+                  <button className="btn-link danger" onClick={() => remove(ev.id)}>
+                    Löschen
+                  </button>
+                </div>
               </div>
-              <div>
-                <button className="btn-link danger" onClick={() => remove(ev.id)}>
-                  Löschen
-                </button>
-              </div>
+
+              {expandedEventId === ev.id && (
+                <div className="day-list-expand">
+                  {!eventDates[ev.id] ? (
+                    <span className="muted">Lädt...</span>
+                  ) : eventDates[ev.id].length === 0 ? (
+                    <span className="muted">Noch keine Zählungen</span>
+                  ) : (
+                    <ul>
+                      {eventDates[ev.id].map((d) => (
+                        <li key={d}>
+                          <Link to={`/event/${ev.id}/day/${d}`}>{formatDay(d)}</Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>

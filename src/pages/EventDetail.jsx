@@ -7,11 +7,18 @@ import {
   deleteFridge,
   getSessionsForFridge,
   getSessionsForFridgeOnDate,
+  getAllProducts,
+  updateEvent,
 } from '../lib/db';
-import { formatDateTime } from '../lib/units';
+import { formatDateTime, generateDateRange } from '../lib/units';
 import QRCode from 'qrcode';
 import { generateAccessCode, listAccessCodesForEvent, deleteAccessCode } from '../lib/accessCodes';
 import { subscribeFridgeLocks, getFridgeLock } from '../lib/locks';
+
+function localDateStr(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export default function EventDetail() {
   const { eventId } = useParams();
@@ -19,11 +26,15 @@ export default function EventDetail() {
   const [event, setEvent] = useState(null);
   const [fridges, setFridges] = useState([]);
   const [sessionCounts, setSessionCounts] = useState({});
-  const [countTypeModal, setCountTypeModal] = useState(null);
+  const [countTypeModal, setCountTypeModal] = useState(null); // fridgeId
   const [accessCodes, setAccessCodes] = useState([]);
   const [qrDataUrl, setQrDataUrl] = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
-  const [fridgeLocks, setFridgeLocks] = useState({}); // fridgeId -> FridgeLock|null
+  const [fridgeLocks, setFridgeLocks] = useState({});
+  const [allProducts, setAllProducts] = useState([]);
+  const [sessionDates, setSessionDates] = useState([]);
+  const [editingProducts, setEditingProducts] = useState(false);
+  const [editProductIds, setEditProductIds] = useState([]);
 
   useEffect(() => {
     load();
@@ -35,20 +46,25 @@ export default function EventDetail() {
   }, [eventId]);
 
   async function load() {
-    const ev = await getEvent(Number(eventId));
+    const [ev, fr, prods] = await Promise.all([
+      getEvent(Number(eventId)),
+      getFridgesForEvent(Number(eventId)),
+      getAllProducts(),
+    ]);
     setEvent(ev);
-    const fr = await getFridgesForEvent(Number(eventId));
     setFridges(fr);
+    setAllProducts(prods);
+    setSessionDates(generateDateRange(ev.dateStart, ev.dateEnd));
+
     const counts = {};
-    for (const f of fr) {
-      const sessions = await getSessionsForFridge(f.id);
-      counts[f.id] = sessions;
-    }
-    setSessionCounts(counts);
     const locks = {};
-    for (const f of fr) {
-      locks[f.id] = await getFridgeLock(f.id);
-    }
+    await Promise.all(
+      fr.map(async (f) => {
+        counts[f.id] = await getSessionsForFridge(f.id);
+        locks[f.id] = await getFridgeLock(f.id);
+      })
+    );
+    setSessionCounts(counts);
     setFridgeLocks(locks);
     await loadAccessCodes();
   }
@@ -89,8 +105,15 @@ export default function EventDetail() {
 
   async function startCounting(fridgeId, type) {
     setCountTypeModal(null);
-    const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+    const today = localDateStr(Date.now());
     const todaysSessions = await getSessionsForFridgeOnDate(Number(fridgeId), today);
+
+    // Block Anfangsstand if today's Endstand already exists
+    if (type === 'Anfangsstand' && todaysSessions.some((s) => s.label === 'Endstand')) {
+      alert('Ein Endstand wurde heute bereits gezählt. Kein neuer Anfangsstand möglich.');
+      return;
+    }
+
     const existing = todaysSessions.find((s) => s.label === type);
     if (existing) {
       navigate(`/correct/${existing.id}/choose`);
@@ -99,7 +122,28 @@ export default function EventDetail() {
     }
   }
 
+  function toggleProduct(id) {
+    setEditProductIds((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    );
+  }
+
+  async function saveProducts() {
+    await updateEvent({ ...event, productIds: editProductIds });
+    setEditingProducts(false);
+    await load();
+  }
+
   if (!event) return <div className="page">Lädt...</div>;
+
+  // Determine if today's Endstand is already done for each fridge (for modal)
+  const todayStr = localDateStr(Date.now());
+  const endstandDoneToday = {};
+  for (const [fridgeId, sessions] of Object.entries(sessionCounts)) {
+    endstandDoneToday[fridgeId] = sessions.some(
+      (s) => s.label === 'Endstand' && localDateStr(s.timestamp) === todayStr
+    );
+  }
 
   return (
     <div className="page">
@@ -113,6 +157,7 @@ export default function EventDetail() {
         {event.productIds.length} Produkte
       </p>
 
+      {/* Kühlgeräte */}
       <div className="card">
         <h2>Kühlgeräte</h2>
         <div className="row">
@@ -145,13 +190,10 @@ export default function EventDetail() {
                 </p>
                 {fridgeLocks[f.id] && !fridgeLocks[f.id].isOwnLock ? (
                   <div className="lock-badge">
-                    🔒 Wird gezählt von: {fridgeLocks[f.id].lockedByName}
+                    Wird gezählt von: {fridgeLocks[f.id].lockedByName}
                   </div>
                 ) : (
-                  <button
-                    className="btn-primary"
-                    onClick={() => setCountTypeModal(f.id)}
-                  >
+                  <button className="btn-primary" onClick={() => setCountTypeModal(f.id)}>
                     Neue Zählung starten
                   </button>
                 )}
@@ -168,6 +210,76 @@ export default function EventDetail() {
           })}
         </ul>
       </div>
+
+      {/* Produkte bearbeiten */}
+      <div className="card">
+        <h2>Produkte</h2>
+        {!editingProducts ? (
+          <>
+            <p className="muted">{event.productIds.length} Produkte ausgewählt</p>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setEditProductIds(event.productIds);
+                setEditingProducts(true);
+              }}
+            >
+              Produkte bearbeiten
+            </button>
+          </>
+        ) : (
+          <>
+            <ul className="product-list" style={{ maxHeight: '16rem', overflowY: 'auto' }}>
+              {allProducts.map((p) => (
+                <li
+                  key={p.id}
+                  onClick={() => toggleProduct(p.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <span>{p.name}</span>
+                  <span>{editProductIds.includes(p.id) ? '✓' : ''}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="row" style={{ marginTop: '0.75rem' }}>
+              <button className="btn-primary" onClick={saveProducts}>
+                Speichern
+              </button>
+              <button className="btn-link" onClick={() => setEditingProducts(false)}>
+                Abbrechen
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Tage */}
+      {sessionDates.length > 0 && (
+        <div className="card">
+          <h2>Tage</h2>
+          <ul className="product-list">
+            {sessionDates.map((d) => (
+              <li
+                key={d}
+                onClick={() => navigate(`/event/${eventId}/day/${d}`)}
+                style={{ cursor: 'pointer' }}
+              >
+                <span>
+                  {new Date(d + 'T12:00:00').toLocaleDateString('de-AT', {
+                    weekday: 'long',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                  })}
+                </span>
+                <span className="muted">→</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* QR-Code Teamzugang */}
       <div className="card">
         <h2>Teamzugang (QR-Code)</h2>
         <button className="btn-secondary" onClick={createDayCode} disabled={qrLoading}>
@@ -186,7 +298,13 @@ export default function EventDetail() {
                 <span className="muted">
                   Gültig bis {new Date(c.validUntil).toLocaleString('de-AT')}
                 </span>
-                <button className="btn-link danger" onClick={async () => { await deleteAccessCode(c.id); loadAccessCodes(); }}>
+                <button
+                  className="btn-link danger"
+                  onClick={async () => {
+                    await deleteAccessCode(c.id);
+                    loadAccessCodes();
+                  }}
+                >
                   Löschen
                 </button>
               </li>
@@ -194,17 +312,21 @@ export default function EventDetail() {
           </ul>
         )}
       </div>
+
+      {/* Zähltyp-Modal */}
       {countTypeModal && (
         <div className="modal-overlay" onClick={() => setCountTypeModal(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>Welcher Zähltyp?</h3>
             <div className="row">
-              <button
-                className="btn-primary big"
-                onClick={() => startCounting(countTypeModal, 'Anfangsstand')}
-              >
-                Anfangsstand
-              </button>
+              {!endstandDoneToday[countTypeModal] && (
+                <button
+                  className="btn-primary big"
+                  onClick={() => startCounting(countTypeModal, 'Anfangsstand')}
+                >
+                  Anfangsstand
+                </button>
+              )}
               <button
                 className="btn-secondary big"
                 onClick={() => startCounting(countTypeModal, 'Endstand')}

@@ -228,3 +228,35 @@ export async function getSession(id) {
   throwIfError(result, 'getSession');
   return mapSession(result.data);
 }
+
+export async function getSessionDatesForEvent(eventId) {
+  const result = await supabase
+    .from('sessions')
+    .select('timestamp')
+    .eq('event_id', eventId)
+    .order('timestamp');
+  throwIfError(result, 'getSessionDatesForEvent');
+  const dates = [
+    ...new Set(
+      result.data.map((s) => {
+        const d = new Date(s.timestamp);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      })
+    ),
+  ];
+  return dates.sort();
+}
+
+export async function getSessionsForEventOnDate(eventId, dateStr) {
+  const from = new Date(dateStr + 'T00:00:00').getTime();
+  const to = new Date(dateStr + 'T23:59:59').getTime();
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('event_id', eventId)
+    .gte('timestamp', from)
+    .lte('timestamp', to)
+    .order('timestamp');
+  throwIfError(result, 'getSessionsForEventOnDate');
+  return result.data.map(mapSession);
+}
