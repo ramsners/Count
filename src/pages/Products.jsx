@@ -8,6 +8,7 @@ export default function Products() {
   const [gebindeUnits, setGebindeUnits] = useState('');
   const [gebindeList, setGebindeList] = useState([]);
   const [editingId, setEditingId] = useState(null);
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
 
   useEffect(() => {
     load();
@@ -56,10 +57,9 @@ export default function Products() {
   }
 
   async function remove(id) {
-    if (confirm('Produkt wirklich löschen?')) {
-      await deleteProduct(id);
-      load();
-    }
+    await deleteProduct(id);
+    setDeleteConfirmProduct(null);
+    load();
   }
 
   return (
@@ -137,7 +137,7 @@ export default function Products() {
                 <button className="btn-link" onClick={() => editProduct(p)}>
                   Bearbeiten
                 </button>
-                <button className="btn-link danger" onClick={() => remove(p.id)}>
+                <button className="btn-link danger" onClick={() => setDeleteConfirmProduct(p)}>
                   Löschen
                 </button>
               </div>
@@ -145,6 +145,25 @@ export default function Products() {
           ))}
         </ul>
       </div>
+
+      {deleteConfirmProduct && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmProduct(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Produkt löschen?</h3>
+            <p className="muted">
+              <strong>{deleteConfirmProduct.name}</strong> wird gelöscht. Bestehende Zählungen bleiben erhalten.
+            </p>
+            <div className="row">
+              <button className="btn-primary" style={{ background: '#dc2626' }} onClick={() => remove(deleteConfirmProduct.id)}>
+                Löschen
+              </button>
+              <button className="btn-secondary" onClick={() => setDeleteConfirmProduct(null)}>
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

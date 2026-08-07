@@ -123,7 +123,7 @@ export default function Tagesabschluss() {
                 <tr key={p.name}>
                   <td>{p.name}</td>
                   <td style={{ textAlign: 'right' }}>{p.endTotal}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: p.diffTotal > 0 ? '#dc2626' : '#666' }}>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: p.hasDiff ? (p.diffTotal > 0 ? '#dc2626' : '#059669') : '#666' }}>
                     {p.hasDiff ? (p.diffTotal > 0 ? '+' : '') + p.diffTotal : '—'}
                   </td>
                 </tr>
@@ -162,7 +162,7 @@ export default function Tagesabschluss() {
                       <td style={{ textAlign: 'right' }}>{r.anfang}</td>
                       <td style={{ textAlign: 'right' }}>{r.end}</td>
                       {anfang && end && (
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: r.diff > 0 ? '#dc2626' : '#666' }}>
+                        <td style={{ textAlign: 'right', fontWeight: 600, color: r.diff > 0 ? '#dc2626' : '#059669' }}>
                           {r.diff > 0 ? '+' : ''}{r.diff}
                         </td>
                       )}
