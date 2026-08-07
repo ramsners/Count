@@ -8,7 +8,7 @@ import {
   addSession,
 } from '../lib/db';
 import { computeTotal } from '../lib/units';
-import { lockFridge, unlockFridge } from '../lib/locks';
+import { lockFridge, unlockFridge, getFridgeLock } from '../lib/locks';
 
 export default function Counting() {
   const { fridgeId } = useParams();
@@ -23,6 +23,8 @@ export default function Counting() {
   const [step, setStep] = useState(0);
   const [entries, setEntries] = useState({});
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [lockError, setLockError] = useState(null);
 
   useEffect(() => {
     load();
@@ -41,8 +43,10 @@ export default function Counting() {
     const lockName = navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC';
     const locked = await lockFridge(Number(fridgeId), fr.eventId, lockName);
     if (!locked) {
-      alert('Dieses Kühlgerät wird gerade von jemand anderem gezählt!');
-      navigate(-1);
+      const existingLock = await getFridgeLock(Number(fridgeId));
+      const holder = existingLock?.lockedByName || 'jemand anderem';
+      setLockError(`${fr.label} wird gerade von ${holder} gezählt.`);
+      setLoading(false);
       return;
     }
     const ev = await getEvent(fr.eventId);
@@ -58,6 +62,16 @@ export default function Counting() {
     setEntries(initialEntries);
     setLoading(false);
   }
+
+  if (lockError) return (
+    <div className="page">
+      <div className="card warning-card">
+        <h2>Gerät gesperrt</h2>
+        <p>{lockError}</p>
+        <button className="btn-secondary" onClick={() => navigate(-1)}>← Zurück</button>
+      </div>
+    </div>
+  );
 
   if (loading || !fridge || !event) return <div className="page">Lädt...</div>;
 
@@ -115,6 +129,8 @@ export default function Counting() {
   }
 
   async function finishCounting() {
+    if (saving) return;
+    setSaving(true);
     const finalEntries = products.map((p) => {
       const e = entries[p.id] || { loose: '', gebindeCounts: {} };
       return {
@@ -193,8 +209,8 @@ export default function Counting() {
         <button className="btn-secondary big" onClick={goBack} disabled={step === 0}>
           Zurück
         </button>
-        <button className="btn-primary big" onClick={goNext}>
-          {step < products.length - 1 ? 'Weiter' : 'Fertig'}
+        <button className="btn-primary big" onClick={goNext} disabled={saving}>
+          {saving ? 'Speichert...' : step < products.length - 1 ? 'Weiter' : 'Fertig'}
         </button>
       </div>
     </div>
