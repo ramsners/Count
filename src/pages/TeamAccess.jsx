@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getValidAccessCode } from '../lib/accessCodes';
 import { getEvent, getFridgesForEvent, getSessionsForFridgeOnDate } from '../lib/db';
-import { getFridgeLock } from '../lib/locks';
+import { getFridgeLock, subscribeFridgeLocks } from '../lib/locks';
 
 function localDateStr(ts) {
   const d = new Date(ts);
@@ -15,6 +15,7 @@ export default function TeamAccess() {
   const navigate = useNavigate();
   const [state, setState] = useState('loading'); // loading | invalid | valid
   const [event, setEvent] = useState(null);
+  const [eventId, setEventId] = useState(null);
   const [fridges, setFridges] = useState([]);
   const [todayStatus, setTodayStatus] = useState({}); // {fridgeId: {hasAnfang, hasEnd}}
   const [fridgeLocks, setFridgeLocks] = useState({}); // {fridgeId: lockInfo|null}
@@ -22,6 +23,41 @@ export default function TeamAccess() {
   useEffect(() => {
     validate();
   }, [code]);
+
+  // Realtime-Lock-Updates sobald eventId bekannt
+  useEffect(() => {
+    if (!eventId) return;
+    const unsub = subscribeFridgeLocks(eventId, refreshLocks);
+    return unsub;
+  }, [eventId]);
+
+  async function refreshStatusAndLocks(fr) {
+    const today = localDateStr(Date.now());
+    const statusMap = {};
+    const lockMap = {};
+    await Promise.all(fr.map(async (f) => {
+      const sessions = await getSessionsForFridgeOnDate(f.id, today);
+      statusMap[f.id] = {
+        hasAnfang: sessions.some((s) => s.label === 'Anfangsstand'),
+        hasEnd: sessions.some((s) => s.label === 'Endstand'),
+      };
+      lockMap[f.id] = await getFridgeLock(f.id);
+    }));
+    setTodayStatus(statusMap);
+    setFridgeLocks(lockMap);
+  }
+
+  async function refreshLocks() {
+    // Nur Lock-Status aktualisieren (für Realtime-Callback)
+    setFridges((currentFridges) => {
+      Promise.all(currentFridges.map((f) => getFridgeLock(f.id))).then((locks) => {
+        const lockMap = {};
+        currentFridges.forEach((f, i) => { lockMap[f.id] = locks[i]; });
+        setFridgeLocks(lockMap);
+      });
+      return currentFridges;
+    });
+  }
 
   async function startCounting(fridgeId, type) {
     const today = localDateStr(Date.now());
@@ -41,22 +77,10 @@ export default function TeamAccess() {
 
       const ev = await getEvent(result.eventId);
       setEvent(ev);
+      setEventId(result.eventId);
       const fr = await getFridgesForEvent(result.eventId);
       setFridges(fr);
-
-      const today = localDateStr(Date.now());
-      const statusMap = {};
-      const lockMap = {};
-      await Promise.all(fr.map(async (f) => {
-        const sessions = await getSessionsForFridgeOnDate(f.id, today);
-        statusMap[f.id] = {
-          hasAnfang: sessions.some((s) => s.label === 'Anfangsstand'),
-          hasEnd: sessions.some((s) => s.label === 'Endstand'),
-        };
-        lockMap[f.id] = await getFridgeLock(f.id);
-      }));
-      setTodayStatus(statusMap);
-      setFridgeLocks(lockMap);
+      await refreshStatusAndLocks(fr);
       setState('valid');
     } catch {
       setState('invalid');
