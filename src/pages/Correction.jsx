@@ -12,6 +12,7 @@ export default function Correction() {
   const [allProducts, setAllProducts] = useState([]);
   const [entry, setEntry] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { load(); }, [sessionId]);
 
@@ -87,20 +88,27 @@ export default function Correction() {
   }
 
   async function saveCorrection() {
-    const updatedEntries = session.entries.map((e) => {
-      if (e.productId !== Number(productId)) return e;
-      return {
-        ...e,
-        loose: Number(entry.loose) || 0,
-        gebindeCounts: entry.gebindeCounts,
-        total: currentTotal,
-      };
-    });
-    await updateSession({ ...session, entries: updatedEntries });
-    if (code) {
-      navigate(`/team/${code}/summary/${sessionId}`);
-    } else {
-      navigate(`/summary/${sessionId}`);
+    if (saving) return;
+    setSaving(true);
+    try {
+      const updatedEntries = session.entries.map((e) => {
+        if (e.productId !== Number(productId)) return e;
+        return {
+          ...e,
+          loose: Number(entry.loose) || 0,
+          gebindeCounts: entry.gebindeCounts,
+          total: currentTotal,
+        };
+      });
+      await updateSession({ ...session, entries: updatedEntries });
+      if (code) {
+        navigate(`/team/${code}/summary/${sessionId}`);
+      } else {
+        navigate(`/summary/${sessionId}`);
+      }
+    } catch (err) {
+      alert('Fehler beim Speichern: ' + err.message);
+      setSaving(false);
     }
   }
 
@@ -138,7 +146,9 @@ export default function Correction() {
       <div className="total-display">Gesamt: {currentTotal} Stk.</div>
       <div className="counting-nav">
         <button className="btn-secondary big" onClick={() => navigate(-1)}>Abbrechen</button>
-        <button className="btn-primary big" onClick={saveCorrection}>Korrektur speichern</button>
+        <button className="btn-primary big" onClick={saveCorrection} disabled={saving}>
+          {saving ? 'Speichert...' : 'Korrektur speichern'}
+        </button>
       </div>
     </div>
   );

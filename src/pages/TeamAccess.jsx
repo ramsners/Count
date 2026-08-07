@@ -16,6 +16,7 @@ export default function TeamAccess() {
   const [state, setState] = useState('loading'); // loading | invalid | valid
   const [event, setEvent] = useState(null);
   const [eventId, setEventId] = useState(null);
+  const [validUntil, setValidUntil] = useState(null);
   const [fridges, setFridges] = useState([]);
   const [todayStatus, setTodayStatus] = useState({}); // {fridgeId: {hasAnfang, hasEnd}}
   const [fridgeLocks, setFridgeLocks] = useState({}); // {fridgeId: lockInfo|null}
@@ -75,6 +76,7 @@ export default function TeamAccess() {
       const result = await getValidAccessCode(code);
       if (!result) { setState('invalid'); return; }
 
+      setValidUntil(result.validUntil);
       const ev = await getEvent(result.eventId);
       setEvent(ev);
       setEventId(result.eventId);
@@ -103,7 +105,9 @@ export default function TeamAccess() {
   return (
     <div className="page">
       <h1>{event.name}</h1>
-      <p className="muted">Teamzugang — Heute zählen</p>
+      <p className="muted">
+        Teamzugang — gültig bis {validUntil ? new Date(validUntil).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '–'}
+      </p>
       <div className="card">
         <h2>Kühlgeräte</h2>
         <ul className="fridge-list">

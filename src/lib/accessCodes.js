@@ -20,8 +20,8 @@ export async function getValidAccessCode(code) {
     .eq('code', code)
     .lte('valid_from', now)
     .gte('valid_until', now)
-    .single();
-  if (result.error || !result.data) return null;
+    .maybeSingle();
+  if (!result.data) return null;
   return { eventId: result.data.event_id, validUntil: result.data.valid_until };
 }
 

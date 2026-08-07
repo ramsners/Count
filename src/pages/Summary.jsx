@@ -167,12 +167,13 @@ export default function Summary() {
 
   return (
     <div className="page">
+      <div style={{ background: '#dcfce7', border: '1px solid #16a34a', borderRadius: 10, padding: '12px 16px', marginBottom: '0.5rem', color: '#15803d', fontWeight: 600 }}>
+        ✓ Zählung gespeichert — {formatDateTime(session.timestamp)}
+      </div>
       <h1>
         {fridge.label} — {session.label}
       </h1>
-      <p className="muted">
-        {event.name} — {formatDateTime(session.timestamp)}
-      </p>
+      <p className="muted">{event.name}</p>
 
       {/* Hauptnavigation: immer direkt sichtbar */}
       <div className="action-nav">
