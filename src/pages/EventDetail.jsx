@@ -42,7 +42,8 @@ export default function EventDetail() {
   }, [eventId]);
 
   useEffect(() => {
-    const unsub = subscribeFridgeLocks(Number(eventId), load);
+    // Lock-Events reloaden nur Kühlgeräte/Locks, nicht Access-Codes
+    const unsub = subscribeFridgeLocks(Number(eventId), loadFridgesAndLocks);
     return unsub;
   }, [eventId]);
 
@@ -56,7 +57,13 @@ export default function EventDetail() {
     setFridges(fr);
     setAllProducts(prods);
     setSessionDates(generateDateRange(ev.dateStart, ev.dateEnd));
+    await loadFridgesAndLocks(fr);
+    await loadAccessCodes();
+  }
 
+  async function loadFridgesAndLocks(fridgeList) {
+    const fr = fridgeList || (await getFridgesForEvent(Number(eventId)));
+    if (!fridgeList) setFridges(fr);
     const counts = {};
     const locks = {};
     await Promise.all(
@@ -67,7 +74,6 @@ export default function EventDetail() {
     );
     setSessionCounts(counts);
     setFridgeLocks(locks);
-    await loadAccessCodes();
   }
 
   async function loadAccessCodes() {
@@ -195,7 +201,11 @@ export default function EventDetail() {
                     </div>
                     <button
                       className="btn-link danger"
-                      onClick={async () => { await unlockFridgeForced(f.id); load(); }}
+                      onClick={async () => {
+                        if (!confirm(`Lock von ${fridgeLocks[f.id].lockedByName} wirklich aufheben?`)) return;
+                        await unlockFridgeForced(f.id);
+                        loadFridgesAndLocks();
+                      }}
                     >
                       Lock aufheben
                     </button>
