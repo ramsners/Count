@@ -275,23 +275,20 @@ export default function Summary() {
         </label>
       </div>
 
-      <div className="card">
-        <h2>Drucken</h2>
-        {!isWebBluetoothSupported() && (
-          <p className="muted">
-            Web Bluetooth wird von diesem Browser nicht unterstützt. Bitte Chrome verwenden.
-          </p>
-        )}
-        <p className="muted">Status: {printerStatus}</p>
-        <div className="row">
-          <button className="btn-secondary" onClick={handleConnect}>
-            Drucker verbinden
-          </button>
-          <button className="btn-primary" onClick={handlePrint} disabled={printing}>
-            {printing ? 'Drucke...' : 'Bon drucken'}
-          </button>
+      {isWebBluetoothSupported() ? (
+        <div className="card">
+          <h2>Drucken</h2>
+          <p className="muted">Status: {printerStatus}</p>
+          <div className="row">
+            <button className="btn-secondary" onClick={handleConnect}>
+              Drucker verbinden
+            </button>
+            <button className="btn-primary" onClick={handlePrint} disabled={printing}>
+              {printing ? 'Drucke...' : 'Bon drucken'}
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

@@ -306,7 +306,15 @@ export default function EventDetail() {
         {qrDataUrl && (
           <div style={{ textAlign: 'center', marginTop: '1rem' }}>
             <img src={qrDataUrl} alt="QR-Code" style={{ maxWidth: 240 }} />
-            <p className="muted">Gültig heute bis Mitternacht. QR-Code abfotografieren.</p>
+            <p className="muted">Gültig heute bis Mitternacht.</p>
+            <a
+              href={qrDataUrl}
+              download="teamzugang-qr.png"
+              className="btn-secondary"
+              style={{ display: 'inline-block', marginTop: '0.5rem', textDecoration: 'none' }}
+            >
+              QR-Code herunterladen
+            </a>
           </div>
         )}
         {accessCodes.length > 0 && (
@@ -355,21 +363,25 @@ export default function EventDetail() {
       {countTypeModal && (
         <div className="modal-overlay" onClick={() => setCountTypeModal(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3>Welcher Zähltyp?</h3>
-            <div className="row">
+            <h3>Was wird gezählt?</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {!endstandDoneToday[countTypeModal] && (
                 <button
                   className="btn-primary big"
                   onClick={() => startCounting(countTypeModal, 'Anfangsstand')}
+                  style={{ textAlign: 'left', paddingLeft: '1rem' }}
                 >
-                  Anfangsstand
+                  <div>☀ Anfangsstand</div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 400, opacity: 0.8 }}>Morgenzählung vor dem Event</div>
                 </button>
               )}
               <button
                 className="btn-secondary big"
                 onClick={() => startCounting(countTypeModal, 'Endstand')}
+                style={{ textAlign: 'left', paddingLeft: '1rem' }}
               >
-                Endstand
+                <div>🌙 Endstand</div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 400, opacity: 0.7 }}>Abendzählung nach dem Event</div>
               </button>
             </div>
             <button className="btn-link" onClick={() => setCountTypeModal(null)}>

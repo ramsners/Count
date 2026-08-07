@@ -31,7 +31,9 @@ export async function lockFridge(fridgeId, eventId, lockedByName) {
     .insert({ fridge_id: fridgeId, event_id: eventId, locked_by: lockedBy, locked_by_name: lockedByName })
     .select()
     .single();
-  return !result.error;
+  // 23505 = unique_violation: Race Condition, anderes Gerät hat Lock gerade gesetzt
+  if (result.error) return false;
+  return true;
 }
 
 export async function unlockFridge(fridgeId) {

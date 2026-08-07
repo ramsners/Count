@@ -148,6 +148,14 @@ export default function DaySummary() {
         </button>
       </div>
 
+      {/* Legende */}
+      {fridges.length > 0 && (
+        <p className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+          <span className="status-chip green" style={{ verticalAlign: 'middle', marginRight: 4 }}>A</span> Anfangsstand gezählt &nbsp;
+          <span className="status-chip blue" style={{ verticalAlign: 'middle', marginRight: 4 }}>E</span> Endstand gezählt
+        </p>
+      )}
+
       {/* Kühlgeräte */}
       {fridges.map((fridge) => {
         const fridgeSessions = sessions.filter((s) => s.fridgeId === fridge.id);
