@@ -13,6 +13,7 @@ export default function Events() {
   const [showForm, setShowForm] = useState(false);
   const [expandedEventId, setExpandedEventId] = useState(null);
   const [eventDates, setEventDates] = useState({});
+  const [deleteConfirmEvent, setDeleteConfirmEvent] = useState(null); // event object
 
   useEffect(() => {
     load();
@@ -64,10 +65,9 @@ export default function Events() {
   }
 
   async function remove(id) {
-    if (confirm('Veranstaltung inkl. aller Kühlgeräte und Zählungen wirklich löschen?')) {
-      await deleteEvent(id);
-      load();
-    }
+    await deleteEvent(id);
+    setDeleteConfirmEvent(null);
+    load();
   }
 
   function formatDay(dateStr) {
@@ -169,7 +169,7 @@ export default function Events() {
                   <button className="btn-link" onClick={() => toggleDays(ev)}>
                     Tage {expandedEventId === ev.id ? '▲' : '▼'}
                   </button>
-                  <button className="btn-link danger" onClick={() => remove(ev.id)}>
+                  <button className="btn-link danger" onClick={() => setDeleteConfirmEvent(ev)}>
                     Löschen
                   </button>
                 </div>
@@ -196,6 +196,26 @@ export default function Events() {
           ))}
         </ul>
       </div>
+
+      {/* Event-Löschen-Bestätigung */}
+      {deleteConfirmEvent && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmEvent(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Veranstaltung löschen?</h3>
+            <p className="muted">
+              <strong>{deleteConfirmEvent.name}</strong> inkl. aller Kühlgeräte und Zählungen wird unwiderruflich gelöscht.
+            </p>
+            <div className="row">
+              <button className="btn-primary" style={{ background: '#dc2626' }} onClick={() => remove(deleteConfirmEvent.id)}>
+                Löschen
+              </button>
+              <button className="btn-secondary" onClick={() => setDeleteConfirmEvent(null)}>
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
