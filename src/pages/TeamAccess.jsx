@@ -2,8 +2,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getValidAccessCode } from '../lib/accessCodes';
-import { getEvent, getFridgesForEvent, getSessionsForFridge, getSessionsForFridgeOnDate } from '../lib/db';
-import { formatDateTime } from '../lib/units';
+import { getEvent, getFridgesForEvent, getSessionsForFridgeOnDate } from '../lib/db';
+import { getFridgeLock } from '../lib/locks';
+
+function localDateStr(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export default function TeamAccess() {
   const { code } = useParams();
@@ -11,16 +16,17 @@ export default function TeamAccess() {
   const [state, setState] = useState('loading'); // loading | invalid | valid
   const [event, setEvent] = useState(null);
   const [fridges, setFridges] = useState([]);
-  const [sessionCounts, setSessionCounts] = useState({});
+  const [todayStatus, setTodayStatus] = useState({}); // {fridgeId: {hasAnfang, hasEnd}}
+  const [fridgeLocks, setFridgeLocks] = useState({}); // {fridgeId: lockInfo|null}
 
   useEffect(() => {
     validate();
   }, [code]);
 
   async function startCounting(fridgeId, type) {
-    const today = new Date().toISOString().slice(0, 10);
-    const todaysSessions = await getSessionsForFridgeOnDate(fridgeId, today);
-    const existing = todaysSessions.find((s) => s.label === type);
+    const today = localDateStr(Date.now());
+    const todaySessions = await getSessionsForFridgeOnDate(fridgeId, today);
+    const existing = todaySessions.find((s) => s.label === type);
     if (existing) {
       navigate(`/team/${code}/correct/${existing.id}/choose`);
     } else {
@@ -29,21 +35,32 @@ export default function TeamAccess() {
   }
 
   async function validate() {
-    const result = await getValidAccessCode(code);
-    if (!result) {
+    try {
+      const result = await getValidAccessCode(code);
+      if (!result) { setState('invalid'); return; }
+
+      const ev = await getEvent(result.eventId);
+      setEvent(ev);
+      const fr = await getFridgesForEvent(result.eventId);
+      setFridges(fr);
+
+      const today = localDateStr(Date.now());
+      const statusMap = {};
+      const lockMap = {};
+      await Promise.all(fr.map(async (f) => {
+        const sessions = await getSessionsForFridgeOnDate(f.id, today);
+        statusMap[f.id] = {
+          hasAnfang: sessions.some((s) => s.label === 'Anfangsstand'),
+          hasEnd: sessions.some((s) => s.label === 'Endstand'),
+        };
+        lockMap[f.id] = await getFridgeLock(f.id);
+      }));
+      setTodayStatus(statusMap);
+      setFridgeLocks(lockMap);
+      setState('valid');
+    } catch {
       setState('invalid');
-      return;
     }
-    const ev = await getEvent(result.eventId);
-    setEvent(ev);
-    const fr = await getFridgesForEvent(result.eventId);
-    setFridges(fr);
-    const counts = {};
-    for (const f of fr) {
-      counts[f.id] = await getSessionsForFridge(f.id);
-    }
-    setSessionCounts(counts);
-    setState('valid');
   }
 
   if (state === 'loading') return <div className="page">Code wird geprüft...</div>;
@@ -62,35 +79,48 @@ export default function TeamAccess() {
   return (
     <div className="page">
       <h1>{event.name}</h1>
-      <p className="muted">Teamzugang — Kühlgeräte zählen</p>
+      <p className="muted">Teamzugang — Heute zählen</p>
       <div className="card">
         <h2>Kühlgeräte</h2>
         <ul className="fridge-list">
           {fridges.map((f) => {
-            const sessions = sessionCounts[f.id] || [];
-            const last = sessions[sessions.length - 1];
+            const status = todayStatus[f.id] || {};
+            const lock = fridgeLocks[f.id];
+            const isLockedByOther = lock && !lock.isOwnLock;
+
             return (
               <li key={f.id} className="fridge-item">
                 <div className="fridge-header">
                   <strong>{f.label} — {f.type}</strong>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {status.hasAnfang && <span className="status-chip green">A</span>}
+                    {status.hasEnd && <span className="status-chip blue">E</span>}
+                  </div>
                 </div>
-                <p className="muted">
-                  {sessions.length === 0
-                    ? 'Noch nicht gezählt'
-                    : `Letzte Zählung: ${last.label} — ${formatDateTime(last.timestamp)}`}
-                </p>
-                <button
-                  className="btn-primary"
-                  onClick={() => startCounting(f.id, 'Anfangsstand')}
-                >
-                  Anfangsstand zählen
-                </button>
-                <button
-                  className="btn-secondary"
-                  onClick={() => startCounting(f.id, 'Endstand')}
-                >
-                  Endstand zählen
-                </button>
+
+                {isLockedByOther ? (
+                  <div className="lock-badge" style={{ marginTop: '0.5rem' }}>
+                    Wird gerade gezählt von: {lock.lockedByName}
+                  </div>
+                ) : (
+                  <div className="row" style={{ marginTop: '0.5rem' }}>
+                    <button
+                      className={status.hasAnfang ? 'btn-secondary' : 'btn-primary'}
+                      style={{ flex: 1 }}
+                      onClick={() => startCounting(f.id, 'Anfangsstand')}
+                    >
+                      {status.hasAnfang ? '✓ Anfangsstand' : '☀ Anfangsstand'}
+                    </button>
+                    <button
+                      className={status.hasEnd ? 'btn-secondary' : 'btn-primary'}
+                      style={{ flex: 1 }}
+                      disabled={!status.hasAnfang}
+                      onClick={() => startCounting(f.id, 'Endstand')}
+                    >
+                      {status.hasEnd ? '✓ Endstand' : '🌙 Endstand'}
+                    </button>
+                  </div>
+                )}
               </li>
             );
           })}
