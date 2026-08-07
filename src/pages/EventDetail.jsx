@@ -13,7 +13,7 @@ import {
 import { formatDateTime, generateDateRange } from '../lib/units';
 import QRCode from 'qrcode';
 import { generateAccessCode, listAccessCodesForEvent, deleteAccessCode } from '../lib/accessCodes';
-import { subscribeFridgeLocks, getFridgeLock } from '../lib/locks';
+import { subscribeFridgeLocks, getFridgeLock, unlockFridgeForced } from '../lib/locks';
 
 function localDateStr(ts) {
   const d = new Date(ts);
@@ -35,6 +35,7 @@ export default function EventDetail() {
   const [sessionDates, setSessionDates] = useState([]);
   const [editingProducts, setEditingProducts] = useState(false);
   const [editProductIds, setEditProductIds] = useState([]);
+  const [deleteConfirmFridge, setDeleteConfirmFridge] = useState(null); // fridge object
 
   useEffect(() => {
     load();
@@ -97,10 +98,9 @@ export default function EventDetail() {
   }
 
   async function removeFridge(id) {
-    if (confirm('Kühlgerät inkl. aller Zählungen löschen?')) {
-      await deleteFridge(id);
-      load();
-    }
+    await deleteFridge(id);
+    setDeleteConfirmFridge(null);
+    load();
   }
 
   async function startCounting(fridgeId, type) {
@@ -179,7 +179,7 @@ export default function EventDetail() {
                   <strong>
                     {f.label} — {f.type}
                   </strong>
-                  <button className="btn-link danger" onClick={() => removeFridge(f.id)}>
+                  <button className="btn-link danger" onClick={() => setDeleteConfirmFridge(f)}>
                     Löschen
                   </button>
                 </div>
@@ -189,8 +189,16 @@ export default function EventDetail() {
                     : `Letzte Zählung: ${last.label} — ${formatDateTime(last.timestamp)}`}
                 </p>
                 {fridgeLocks[f.id] && !fridgeLocks[f.id].isOwnLock ? (
-                  <div className="lock-badge">
-                    Wird gezählt von: {fridgeLocks[f.id].lockedByName}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div className="lock-badge" style={{ flex: 1 }}>
+                      Wird gezählt von: {fridgeLocks[f.id].lockedByName}
+                    </div>
+                    <button
+                      className="btn-link danger"
+                      onClick={async () => { await unlockFridgeForced(f.id); load(); }}
+                    >
+                      Lock aufheben
+                    </button>
                   </div>
                 ) : (
                   <button className="btn-primary" onClick={() => setCountTypeModal(f.id)}>
@@ -312,6 +320,26 @@ export default function EventDetail() {
           </ul>
         )}
       </div>
+
+      {/* Kühlgerät-Löschen-Bestätigung */}
+      {deleteConfirmFridge && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirmFridge(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Kühlgerät löschen?</h3>
+            <p className="muted">
+              <strong>{deleteConfirmFridge.label} ({deleteConfirmFridge.type})</strong> inkl. aller Zählungen wird unwiderruflich gelöscht.
+            </p>
+            <div className="row">
+              <button className="btn-primary" style={{ background: '#dc2626' }} onClick={() => removeFridge(deleteConfirmFridge.id)}>
+                Löschen
+              </button>
+              <button className="btn-secondary" onClick={() => setDeleteConfirmFridge(null)}>
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Zähltyp-Modal */}
       {countTypeModal && (
