@@ -19,23 +19,29 @@ export default function DaySummary() {
   const [fridges, setFridges] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [allDates, setAllDates] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     load();
   }, [eventId, dateStr]);
 
   async function load() {
-    const [ev, fr, sess] = await Promise.all([
-      getEvent(Number(eventId)),
-      getFridgesForEvent(Number(eventId)),
-      getSessionsForEventOnDate(Number(eventId), dateStr),
-    ]);
-    setEvent(ev);
-    setFridges(fr);
-    setSessions(sess);
-    setAllDates(generateDateRange(ev.dateStart, ev.dateEnd));
+    try {
+      const [ev, fr, sess] = await Promise.all([
+        getEvent(Number(eventId)),
+        getFridgesForEvent(Number(eventId)),
+        getSessionsForEventOnDate(Number(eventId), dateStr),
+      ]);
+      setEvent(ev);
+      setFridges(fr);
+      setSessions(sess);
+      setAllDates(generateDateRange(ev.dateStart, ev.dateEnd));
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
+  if (error) return <div className="page"><div className="card warning-card"><p>{error}</p><button className="btn-secondary" onClick={() => navigate(-1)}>← Zurück</button></div></div>;
   if (!event) return <div className="page">Lädt...</div>;
 
   const today = localDateStr(Date.now());

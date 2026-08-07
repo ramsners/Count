@@ -10,23 +10,29 @@ export default function Tagesabschluss() {
   const [fridges, setFridges] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [allDates, setAllDates] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     load();
   }, [eventId, dateStr]);
 
   async function load() {
-    const [ev, fr, sess] = await Promise.all([
-      getEvent(Number(eventId)),
-      getFridgesForEvent(Number(eventId)),
-      getSessionsForEventOnDate(Number(eventId), dateStr),
-    ]);
-    setEvent(ev);
-    setFridges(fr);
-    setSessions(sess);
-    setAllDates(generateDateRange(ev.dateStart, ev.dateEnd));
+    try {
+      const [ev, fr, sess] = await Promise.all([
+        getEvent(Number(eventId)),
+        getFridgesForEvent(Number(eventId)),
+        getSessionsForEventOnDate(Number(eventId), dateStr),
+      ]);
+      setEvent(ev);
+      setFridges(fr);
+      setSessions(sess);
+      setAllDates(generateDateRange(ev.dateStart, ev.dateEnd));
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
+  if (error) return <div className="page"><div className="card warning-card"><p>{error}</p><button className="btn-secondary" onClick={() => navigate(-1)}>← Zurück</button></div></div>;
   if (!event) return <div className="page">Lädt...</div>;
 
   const dateIdx = allDates.indexOf(dateStr);
@@ -117,7 +123,7 @@ export default function Tagesabschluss() {
                 <tr key={p.name}>
                   <td>{p.name}</td>
                   <td style={{ textAlign: 'right' }}>{p.endTotal}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: p.diffTotal < 0 ? '#dc2626' : p.diffTotal > 0 ? '#16a34a' : '#666' }}>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: p.diffTotal > 0 ? '#dc2626' : '#666' }}>
                     {p.hasDiff ? (p.diffTotal > 0 ? '+' : '') + p.diffTotal : '—'}
                   </td>
                 </tr>
@@ -156,7 +162,7 @@ export default function Tagesabschluss() {
                       <td style={{ textAlign: 'right' }}>{r.anfang}</td>
                       <td style={{ textAlign: 'right' }}>{r.end}</td>
                       {anfang && end && (
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: r.diff < 0 ? '#dc2626' : r.diff > 0 ? '#16a34a' : '#666' }}>
+                        <td style={{ textAlign: 'right', fontWeight: 600, color: r.diff > 0 ? '#dc2626' : '#666' }}>
                           {r.diff > 0 ? '+' : ''}{r.diff}
                         </td>
                       )}

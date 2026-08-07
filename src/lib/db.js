@@ -211,7 +211,7 @@ export async function getLastEndstandForFridge(fridgeId) {
 export async function getSessionsForFridgeOnDate(fridgeId, dateStr) {
   // dateStr: 'YYYY-MM-DD', filter by unix ms timestamp range
   const from = new Date(dateStr + 'T00:00:00').getTime();
-  const to = new Date(dateStr + 'T23:59:59').getTime();
+  const to = new Date(dateStr + 'T23:59:59.999').getTime();
   const result = await supabase
     .from('sessions')
     .select('*')
@@ -249,7 +249,7 @@ export async function getSessionDatesForEvent(eventId) {
 
 export async function getSessionsForEventOnDate(eventId, dateStr) {
   const from = new Date(dateStr + 'T00:00:00').getTime();
-  const to = new Date(dateStr + 'T23:59:59').getTime();
+  const to = new Date(dateStr + 'T23:59:59.999').getTime();
   const result = await supabase
     .from('sessions')
     .select('*')
