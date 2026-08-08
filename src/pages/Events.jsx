@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { getAllEvents, addEvent, getAllProducts, deleteEvent } from '../lib/db';
 import { generateDateRange } from '../lib/units';
 
+function localDateStr(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function Events() {
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [products, setProducts] = useState([]);
   const [name, setName] = useState('');
@@ -164,6 +170,19 @@ export default function Events() {
                       : ''}
                     {' '}— {ev.productIds.length} Produkte
                   </div>
+                  {ev.dateStart && (() => {
+                    const today = localDateStr(Date.now());
+                    const isActive = ev.dateStart <= today && (!ev.dateEnd || ev.dateEnd >= today);
+                    return isActive ? (
+                      <button
+                        className="btn-primary"
+                        style={{ marginTop: 6, padding: '8px 14px', fontSize: '0.9rem' }}
+                        onClick={() => navigate(`/event/${ev.id}/day/${today}`)}
+                      >
+                        Heute zählen →
+                      </button>
+                    ) : null;
+                  })()}
                 </div>
                 <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
                   <button className="btn-link" onClick={() => toggleDays(ev)}>

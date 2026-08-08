@@ -247,7 +247,7 @@ export default function Summary() {
       <div className="card">
         <h2>Foto dieser Zählung</h2>
         {showPhotoPrompt && photos.length === 0 && (
-          <p className="muted">Foto vom Kühlgerät machen zur Dokumentation?</p>
+          <p className="muted">Foto vom Kühlinhalt aufnehmen als Nachweis für diese Zählung (optional).</p>
         )}
         {photoUploadSuccess && (
           <p style={{ color: '#16a34a', fontWeight: 600, margin: '0 0 0.5rem' }}>

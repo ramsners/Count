@@ -115,7 +115,7 @@ export default function Tagesabschluss() {
               <tr>
                 <th>Produkt</th>
                 <th style={{ textAlign: 'right' }}>Endbestand</th>
-                <th style={{ textAlign: 'right' }}>Differenz</th>
+                <th style={{ textAlign: 'right' }}>Verbrauch</th>
               </tr>
             </thead>
             <tbody>
@@ -152,7 +152,7 @@ export default function Tagesabschluss() {
                     <th>Produkt</th>
                     <th style={{ textAlign: 'right' }}>Anfang</th>
                     <th style={{ textAlign: 'right' }}>Ende</th>
-                    {anfang && end && <th style={{ textAlign: 'right' }}>Diff</th>}
+                    {anfang && end && <th style={{ textAlign: 'right' }}>Verbrauch</th>}
                   </tr>
                 </thead>
                 <tbody>
