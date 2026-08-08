@@ -24,6 +24,7 @@ export default function TeamAccess() {
   const [fridgeLocks, setFridgeLocks] = useState({}); // {fridgeId: lockInfo|null}
   const [userName, setUserName] = useState(() => localStorage.getItem(NAME_KEY) || '');
   const [nameInput, setNameInput] = useState('');
+  const [starting, setStarting] = useState(null); // fridgeId__type while navigating
 
   useEffect(() => {
     validate();
@@ -65,13 +66,21 @@ export default function TeamAccess() {
   }
 
   async function startCounting(fridgeId, type) {
-    const today = localDateStr(Date.now());
-    const todaySessions = await getSessionsForFridgeOnDate(fridgeId, today);
-    const existing = todaySessions.find((s) => s.label === type);
-    if (existing) {
-      navigate(`/team/${code}/correct/${existing.id}/choose`);
-    } else {
-      navigate(`/team/${code}/count/${fridgeId}?type=${type}&teamCode=${code}`);
+    const key = `${fridgeId}__${type}`;
+    if (starting) return;
+    setStarting(key);
+    try {
+      const today = localDateStr(Date.now());
+      const todaySessions = await getSessionsForFridgeOnDate(fridgeId, today);
+      const existing = todaySessions.find((s) => s.label === type);
+      if (existing) {
+        navigate(`/team/${code}/correct/${existing.id}/choose`);
+      } else {
+        navigate(`/team/${code}/count/${fridgeId}?type=${type}&teamCode=${code}`);
+      }
+    } catch (e) {
+      alert('Fehler: ' + e.message);
+      setStarting(null);
     }
   }
 
@@ -179,18 +188,19 @@ export default function TeamAccess() {
                     <button
                       className={status.hasAnfang ? 'btn-secondary' : 'btn-primary'}
                       style={{ flex: 1 }}
+                      disabled={!!starting}
                       onClick={() => startCounting(f.id, 'Anfangsstand')}
                     >
-                      {status.hasAnfang ? '✓ Anfangsstand' : '☀ Anfangsstand'}
+                      {starting === `${f.id}__Anfangsstand` ? 'Lädt...' : status.hasAnfang ? '✓ Anfangsstand' : '☀ Anfangsstand'}
                     </button>
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <button
                         className={status.hasEnd ? 'btn-secondary' : 'btn-primary'}
                         style={{ width: '100%' }}
-                        disabled={!status.hasAnfang}
+                        disabled={!status.hasAnfang || !!starting}
                         onClick={() => startCounting(f.id, 'Endstand')}
                       >
-                        {status.hasEnd ? '✓ Endstand' : '🌙 Endstand'}
+                        {starting === `${f.id}__Endstand` ? 'Lädt...' : status.hasEnd ? '✓ Endstand' : '🌙 Endstand'}
                       </button>
                       {!status.hasAnfang && (
                         <small className="muted" style={{ textAlign: 'center', fontSize: '0.72rem' }}>Zuerst Anfangsstand zählen</small>

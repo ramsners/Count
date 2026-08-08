@@ -37,37 +37,41 @@ export default function Counting() {
 
   async function load() {
     setLoading(true);
-    const allProducts = await getAllProducts();
-    const fr = await getFridgeById(Number(fridgeId));
-    setFridge(fr);
-    // Lock setzen — gespeicherter Name hat Vorrang vor User-Agent-Fallback
-    const lockName = localStorage.getItem('festwerk-user-name') || (navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC');
-    const locked = await lockFridge(Number(fridgeId), fr.eventId, lockName);
-    if (!locked) {
-      const existingLock = await getFridgeLock(Number(fridgeId));
-      const holder = existingLock?.lockedByName || 'jemand anderem';
-      setLockError(`${fr.label} wird gerade von ${holder} gezählt.`);
+    try {
+      const allProducts = await getAllProducts();
+      const fr = await getFridgeById(Number(fridgeId));
+      setFridge(fr);
+      // Lock setzen — gespeicherter Name hat Vorrang vor User-Agent-Fallback
+      const lockName = localStorage.getItem('festwerk-user-name') || (navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC');
+      const locked = await lockFridge(Number(fridgeId), fr.eventId, lockName);
+      if (!locked) {
+        const existingLock = await getFridgeLock(Number(fridgeId));
+        const holder = existingLock?.lockedByName || 'jemand anderem';
+        setLockError(`${fr.label} wird gerade von ${holder} gezählt.`);
+        return;
+      }
+      const ev = await getEvent(fr.eventId);
+      setEvent(ev);
+      const eventProducts = allProducts.filter((p) => ev.productIds.includes(p.id));
+      setProducts(eventProducts);
+      const last = await getLastEndstandForFridge(Number(fridgeId));
+      setLastEndstand(last);
+
+      // Draft aus localStorage wiederherstellen (verhindert Datenverlust bei Zurück-Navigation)
+      const draftKey = `counting-draft-${fridgeId}-${countType}`;
+      let savedDraft = null;
+      try { savedDraft = JSON.parse(localStorage.getItem(draftKey)); } catch {}
+
+      const initialEntries = {};
+      eventProducts.forEach((p) => {
+        initialEntries[p.id] = savedDraft?.[p.id] || { loose: '', gebindeCounts: {} };
+      });
+      setEntries(initialEntries);
+    } catch (e) {
+      setLockError(`Ladefehler: ${e.message}`);
+    } finally {
       setLoading(false);
-      return;
     }
-    const ev = await getEvent(fr.eventId);
-    setEvent(ev);
-    const eventProducts = allProducts.filter((p) => ev.productIds.includes(p.id));
-    setProducts(eventProducts);
-    const last = await getLastEndstandForFridge(Number(fridgeId));
-    setLastEndstand(last);
-
-    // Draft aus localStorage wiederherstellen (verhindert Datenverlust bei Zurück-Navigation)
-    const draftKey = `counting-draft-${fridgeId}-${countType}`;
-    let savedDraft = null;
-    try { savedDraft = JSON.parse(localStorage.getItem(draftKey)); } catch {}
-
-    const initialEntries = {};
-    eventProducts.forEach((p) => {
-      initialEntries[p.id] = savedDraft?.[p.id] || { loose: '', gebindeCounts: {} };
-    });
-    setEntries(initialEntries);
-    setLoading(false);
   }
 
   if (lockError) return (
