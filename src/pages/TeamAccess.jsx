@@ -11,11 +11,12 @@ function localDateStr(ts) {
 }
 
 const NAME_KEY = 'festwerk-user-name';
+const ONBOARDING_KEY = 'festwerk-onboarding-seen';
 
 export default function TeamAccess() {
   const { code } = useParams();
   const navigate = useNavigate();
-  const [state, setState] = useState('loading'); // loading | invalid | valid | name-entry
+  const [state, setState] = useState('loading'); // loading | invalid | valid | name-entry | onboarding
   const [event, setEvent] = useState(null);
   const [eventId, setEventId] = useState(null);
   const [validUntil, setValidUntil] = useState(null);
@@ -109,6 +110,13 @@ export default function TeamAccess() {
     if (!n) return;
     localStorage.setItem(NAME_KEY, n);
     setUserName(n);
+    // Onboarding nur beim allerersten Mal zeigen
+    const seen = localStorage.getItem(ONBOARDING_KEY);
+    setState(seen ? 'valid' : 'onboarding');
+  }
+
+  function finishOnboarding() {
+    localStorage.setItem(ONBOARDING_KEY, '1');
     setState('valid');
   }
 
@@ -141,9 +149,68 @@ export default function TeamAccess() {
             autoFocus
           />
           <button className="btn-primary" onClick={saveName} disabled={!nameInput.trim()}>
-            Los geht's →
+            Weiter →
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (state === 'onboarding') {
+    return (
+      <div className="page">
+        <h1>{event?.name}</h1>
+        <p className="muted" style={{ marginBottom: '1rem' }}>Hallo {userName}! Kurze Erklärung bevor du loslegst:</p>
+
+        <div className="card">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>☀</span>
+              <div>
+                <strong>Anfangsstand — vor dem Event</strong>
+                <p className="muted" style={{ margin: '0.15rem 0 0' }}>
+                  Zähle alle Produkte im Kühlgerät bevor der Betrieb beginnt. Das ist der Startbestand für heute.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>🌙</span>
+              <div>
+                <strong>Endstand — nach dem Event</strong>
+                <p className="muted" style={{ margin: '0.15rem 0 0' }}>
+                  Zähle nochmal alle Produkte wenn der Betrieb vorbei ist. Daraus wird der Verbrauch berechnet.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>📦</span>
+              <div>
+                <strong>Zählen — Produkt für Produkt</strong>
+                <p className="muted" style={{ margin: '0.15rem 0 0' }}>
+                  Die App führt dich durch jedes Produkt. Lose Flaschen und volle Gebinde (z.B. Tragerl) werden getrennt eingegeben — die App rechnet den Gesamtwert aus.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>📷</span>
+              <div>
+                <strong>Foto als Nachweis (optional)</strong>
+                <p className="muted" style={{ margin: '0.15rem 0 0' }}>
+                  Nach dem Zählen kannst du ein Foto vom Kühlinhalt machen — als Beleg falls es später Fragen gibt.
+                </p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <button className="btn-primary" style={{ width: '100%', marginTop: '0.5rem' }} onClick={finishOnboarding}>
+          Verstanden, los geht's →
+        </button>
       </div>
     );
   }
