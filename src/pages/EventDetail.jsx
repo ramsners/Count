@@ -36,6 +36,7 @@ export default function EventDetail() {
   const [editingProducts, setEditingProducts] = useState(false);
   const [editProductIds, setEditProductIds] = useState([]);
   const [deleteConfirmFridge, setDeleteConfirmFridge] = useState(null); // fridge object
+  const [creatingFridge, setCreatingFridge] = useState(false);
 
   useEffect(() => {
     load();
@@ -48,17 +49,21 @@ export default function EventDetail() {
   }, [eventId]);
 
   async function load() {
-    const [ev, fr, prods] = await Promise.all([
-      getEvent(Number(eventId)),
-      getFridgesForEvent(Number(eventId)),
-      getAllProducts(),
-    ]);
-    setEvent(ev);
-    setFridges(fr);
-    setAllProducts(prods);
-    setSessionDates(generateDateRange(ev.dateStart, ev.dateEnd));
-    await loadFridgesAndLocks(fr);
-    await loadAccessCodes();
+    try {
+      const [ev, fr, prods] = await Promise.all([
+        getEvent(Number(eventId)),
+        getFridgesForEvent(Number(eventId)),
+        getAllProducts(),
+      ]);
+      setEvent(ev);
+      setFridges(fr);
+      setAllProducts(prods);
+      setSessionDates(generateDateRange(ev.dateStart, ev.dateEnd));
+      await loadFridgesAndLocks(fr);
+      await loadAccessCodes();
+    } catch (e) {
+      console.error('EventDetail load error:', e);
+    }
   }
 
   async function loadFridgesAndLocks(fridgeList) {
@@ -99,8 +104,14 @@ export default function EventDetail() {
   }
 
   async function createFridge(type) {
-    await addFridge({ eventId: Number(eventId), type });
-    load();
+    if (creatingFridge) return;
+    setCreatingFridge(true);
+    try {
+      await addFridge({ eventId: Number(eventId), type });
+      load();
+    } finally {
+      setCreatingFridge(false);
+    }
   }
 
   async function removeFridge(id) {
@@ -167,10 +178,10 @@ export default function EventDetail() {
       <div className="card">
         <h2>Kühlgeräte</h2>
         <div className="row">
-          <button className="btn-secondary" onClick={() => createFridge('Kühlschrank')}>
+          <button className="btn-secondary" onClick={() => createFridge('Kühlschrank')} disabled={creatingFridge}>
             + Kühlschrank
           </button>
-          <button className="btn-secondary" onClick={() => createFridge('Kühltruhe')}>
+          <button className="btn-secondary" onClick={() => createFridge('Kühltruhe')} disabled={creatingFridge}>
             + Kühltruhe
           </button>
         </div>

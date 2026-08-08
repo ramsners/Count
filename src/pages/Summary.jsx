@@ -178,8 +178,8 @@ export default function Summary() {
       {/* Hauptnavigation: immer direkt sichtbar */}
       <div className="action-nav">
         {isTeamRoute ? (
-          <button className="btn-secondary" onClick={() => navigate(-1)}>
-            ← Zurück
+          <button className="btn-secondary" onClick={() => navigate(`/team/${teamCode}`)}>
+            ← Zur Übersicht
           </button>
         ) : (
           <Link to={backUrl} className="btn-secondary">

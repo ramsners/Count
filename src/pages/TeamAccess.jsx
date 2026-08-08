@@ -110,6 +110,7 @@ export default function TeamAccess() {
       </p>
       <div className="card">
         <h2>Kühlgeräte</h2>
+        <p className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>A = Anfangsstand gezählt &nbsp;·&nbsp; E = Endstand gezählt</p>
         <ul className="fridge-list">
           {fridges.map((f) => {
             const status = todayStatus[f.id] || {};
@@ -139,14 +140,19 @@ export default function TeamAccess() {
                     >
                       {status.hasAnfang ? '✓ Anfangsstand' : '☀ Anfangsstand'}
                     </button>
-                    <button
-                      className={status.hasEnd ? 'btn-secondary' : 'btn-primary'}
-                      style={{ flex: 1 }}
-                      disabled={!status.hasAnfang}
-                      onClick={() => startCounting(f.id, 'Endstand')}
-                    >
-                      {status.hasEnd ? '✓ Endstand' : '🌙 Endstand'}
-                    </button>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <button
+                        className={status.hasEnd ? 'btn-secondary' : 'btn-primary'}
+                        style={{ width: '100%' }}
+                        disabled={!status.hasAnfang}
+                        onClick={() => startCounting(f.id, 'Endstand')}
+                      >
+                        {status.hasEnd ? '✓ Endstand' : '🌙 Endstand'}
+                      </button>
+                      {!status.hasAnfang && (
+                        <small className="muted" style={{ textAlign: 'center', fontSize: '0.72rem' }}>Zuerst Anfangsstand zählen</small>
+                      )}
+                    </div>
                   </div>
                 )}
               </li>

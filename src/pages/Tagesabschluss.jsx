@@ -50,15 +50,22 @@ export default function Tagesabschluss() {
 
     const rows = [];
     if (anfang && end) {
-      for (const e of end.entries) {
-        const a = anfang.entries.find((ae) => ae.productId === e.productId);
+      // Union beider Produktmengen — fehlende Produkte im Endstand bleiben sichtbar
+      const allIds = new Set([
+        ...anfang.entries.map((e) => e.productId),
+        ...end.entries.map((e) => e.productId),
+      ]);
+      for (const pid of allIds) {
+        const a = anfang.entries.find((ae) => ae.productId === pid);
+        const e = end.entries.find((ee) => ee.productId === pid);
         const anfangVal = a ? a.total : 0;
+        const endVal = e ? e.total : 0;
         rows.push({
-          productId: e.productId,
-          productName: e.productName,
+          productId: pid,
+          productName: (e || a).productName,
           anfang: anfangVal,
-          end: e.total,
-          diff: e.total - anfangVal,
+          end: endVal,
+          diff: endVal - anfangVal,
         });
       }
     } else if (end) {
@@ -123,8 +130,8 @@ export default function Tagesabschluss() {
                 <tr key={p.name}>
                   <td>{p.name}</td>
                   <td style={{ textAlign: 'right' }}>{p.endTotal}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: p.hasDiff ? (p.diffTotal > 0 ? '#dc2626' : '#059669') : '#666' }}>
-                    {p.hasDiff ? (p.diffTotal > 0 ? '+' : '') + p.diffTotal : '—'}
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: p.hasDiff ? (p.diffTotal > 0 ? '#dc2626' : '#374151') : '#666' }}>
+                    {p.hasDiff ? (p.diffTotal > 0 ? `+${p.diffTotal} ⚠` : String(Math.abs(p.diffTotal))) : '—'}
                   </td>
                 </tr>
               ))}
@@ -162,8 +169,8 @@ export default function Tagesabschluss() {
                       <td style={{ textAlign: 'right' }}>{r.anfang}</td>
                       <td style={{ textAlign: 'right' }}>{r.end}</td>
                       {anfang && end && (
-                        <td style={{ textAlign: 'right', fontWeight: 600, color: r.diff > 0 ? '#dc2626' : '#059669' }}>
-                          {r.diff > 0 ? '+' : ''}{r.diff}
+                        <td style={{ textAlign: 'right', fontWeight: 600, color: r.diff > 0 ? '#dc2626' : '#374151' }}>
+                          {r.diff > 0 ? `+${r.diff} ⚠` : String(Math.abs(r.diff))}
                         </td>
                       )}
                     </tr>
