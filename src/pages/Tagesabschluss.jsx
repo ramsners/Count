@@ -81,15 +81,18 @@ export default function Tagesabschluss() {
     return { fridge, anfang, end, rows };
   });
 
-  // Totals across all fridges (Endstand)
+  // Totals across all fridges — alle Produkte aus allen Kühlgeräten aggregieren
   const totals = {};
   for (const { rows } of fridgeSummaries) {
     for (const r of rows) {
-      if (typeof r.end !== 'number') continue;
-      if (!totals[r.productId]) totals[r.productId] = { name: r.productName, endTotal: 0, diffTotal: 0, hasDiff: false };
-      totals[r.productId].endTotal += r.end;
+      if (!totals[r.productId]) {
+        totals[r.productId] = { name: r.productName, endTotal: null, diffTotal: null, hasDiff: false };
+      }
+      if (typeof r.end === 'number') {
+        totals[r.productId].endTotal = (totals[r.productId].endTotal ?? 0) + r.end;
+      }
       if (typeof r.diff === 'number') {
-        totals[r.productId].diffTotal += r.diff;
+        totals[r.productId].diffTotal = (totals[r.productId].diffTotal ?? 0) + r.diff;
         totals[r.productId].hasDiff = true;
       }
     }
@@ -132,7 +135,7 @@ export default function Tagesabschluss() {
               {totalRows.map((p) => (
                 <tr key={p.name}>
                   <td>{p.name}</td>
-                  <td style={{ textAlign: 'right' }}>{p.endTotal}</td>
+                  <td style={{ textAlign: 'right' }}>{p.endTotal ?? '—'}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600, color: p.hasDiff ? (p.diffTotal > 0 ? '#dc2626' : '#374151') : '#666' }}>
                     {p.hasDiff ? (p.diffTotal > 0 ? `+${p.diffTotal} ⚠` : String(Math.abs(p.diffTotal))) : '—'}
                   </td>
