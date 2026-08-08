@@ -55,9 +55,15 @@ export default function Counting() {
     setProducts(eventProducts);
     const last = await getLastEndstandForFridge(Number(fridgeId));
     setLastEndstand(last);
+
+    // Draft aus localStorage wiederherstellen (verhindert Datenverlust bei Zurück-Navigation)
+    const draftKey = `counting-draft-${fridgeId}-${countType}`;
+    let savedDraft = null;
+    try { savedDraft = JSON.parse(localStorage.getItem(draftKey)); } catch {}
+
     const initialEntries = {};
     eventProducts.forEach((p) => {
-      initialEntries[p.id] = { loose: '', gebindeCounts: {} };
+      initialEntries[p.id] = savedDraft?.[p.id] || { loose: '', gebindeCounts: {} };
     });
     setEntries(initialEntries);
     setLoading(false);
@@ -89,18 +95,28 @@ export default function Counting() {
   const product = products[step];
   const entry = entries[product.id] || { loose: '', gebindeCounts: {} };
 
+  const draftKey = `counting-draft-${fridgeId}-${countType}`;
+
   function updateLoose(val) {
-    setEntries((prev) => ({ ...prev, [product.id]: { ...prev[product.id], loose: val } }));
+    setEntries((prev) => {
+      const next = { ...prev, [product.id]: { ...prev[product.id], loose: val } };
+      localStorage.setItem(draftKey, JSON.stringify(next));
+      return next;
+    });
   }
 
   function updateGebinde(label, val) {
-    setEntries((prev) => ({
-      ...prev,
-      [product.id]: {
-        ...prev[product.id],
-        gebindeCounts: { ...prev[product.id].gebindeCounts, [label]: val },
-      },
-    }));
+    setEntries((prev) => {
+      const next = {
+        ...prev,
+        [product.id]: {
+          ...prev[product.id],
+          gebindeCounts: { ...prev[product.id].gebindeCounts, [label]: val },
+        },
+      };
+      localStorage.setItem(draftKey, JSON.stringify(next));
+      return next;
+    });
   }
 
   const currentTotal = computeTotal(entry.loose, entry.gebindeCounts, product);
@@ -138,6 +154,8 @@ export default function Counting() {
         productName: p.name,
         loose: Number(e.loose) || 0,
         gebindeCounts: e.gebindeCounts,
+        // Gebinde-Definition als Snapshot speichern — schützt vor nachträglichen Änderungen
+        gebinde: p.gebinde || [],
         total: computeTotal(e.loose, e.gebindeCounts, p),
       };
     });
@@ -149,6 +167,7 @@ export default function Counting() {
       entries: finalEntries,
     };
     const id = await addSession(session);
+    localStorage.removeItem(draftKey); // Draft nach erfolgreichem Speichern löschen
     await unlockFridge(fridge.id);
     const teamCode = searchParams.get('teamCode');
     if (teamCode) {

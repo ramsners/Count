@@ -78,7 +78,10 @@ export default function Correction() {
   const product = allProducts.find((p) => p.id === Number(productId));
   if (!product || !entry) return <div className="page">Produkt nicht gefunden.</div>;
 
-  const currentTotal = computeTotal(entry.loose, entry.gebindeCounts, product);
+  // Gespeicherte Gebinde-Definition aus der Session verwenden (schützt vor nachträglichen Änderungen)
+  const sessionEntry = session.entries.find((e) => e.productId === Number(productId));
+  const productWithSnapshot = sessionEntry?.gebinde ? { ...product, gebinde: sessionEntry.gebinde } : product;
+  const currentTotal = computeTotal(entry.loose, entry.gebindeCounts, productWithSnapshot);
 
   function updateLoose(val) {
     setEntry((prev) => ({ ...prev, loose: val }));
@@ -130,7 +133,7 @@ export default function Correction() {
           placeholder="0"
         />
       </div>
-      {product.gebinde?.map((g) => (
+      {productWithSnapshot.gebinde?.map((g) => (
         <div className="count-field" key={g.label}>
           <label>{g.label} (à {g.units} Stk.)</label>
           <input

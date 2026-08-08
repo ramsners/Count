@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getAllProducts, addProduct, updateProduct, deleteProduct } from '../lib/db';
+import { getAllProducts, addProduct, updateProduct, deleteProduct, getEventsUsingProduct } from '../lib/db';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -8,7 +8,12 @@ export default function Products() {
   const [gebindeUnits, setGebindeUnits] = useState('');
   const [gebindeList, setGebindeList] = useState([]);
   const [editingId, setEditingId] = useState(null);
-  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null);
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(null); // {product, usedInEvents: []}
+
+  async function prepareDelete(p) {
+    const usedIn = await getEventsUsingProduct(p.id);
+    setDeleteConfirmProduct({ product: p, usedInEvents: usedIn });
+  }
 
   useEffect(() => {
     load();
@@ -60,6 +65,10 @@ export default function Products() {
     await deleteProduct(id);
     setDeleteConfirmProduct(null);
     load();
+  }
+
+  async function removeProduct() {
+    await remove(deleteConfirmProduct.product.id);
   }
 
   return (
@@ -137,7 +146,7 @@ export default function Products() {
                 <button className="btn-link" onClick={() => editProduct(p)}>
                   Bearbeiten
                 </button>
-                <button className="btn-link danger" onClick={() => setDeleteConfirmProduct(p)}>
+                <button className="btn-link danger" onClick={() => prepareDelete(p)}>
                   Löschen
                 </button>
               </div>
@@ -151,11 +160,20 @@ export default function Products() {
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>Produkt löschen?</h3>
             <p className="muted">
-              <strong>{deleteConfirmProduct.name}</strong> wird gelöscht. Bestehende Zählungen bleiben erhalten.
+              <strong>{deleteConfirmProduct.product.name}</strong> wird gelöscht.
             </p>
+            {deleteConfirmProduct.usedInEvents.length > 0 && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 12px', marginBottom: '0.5rem' }}>
+                <strong style={{ color: '#dc2626' }}>Achtung:</strong>
+                <span className="muted"> Dieses Produkt wird in {deleteConfirmProduct.usedInEvents.length} Veranstaltung(en) verwendet:</span>
+                <ul style={{ margin: '4px 0 0', paddingLeft: '1.2rem', fontSize: '0.85rem', color: '#666' }}>
+                  {deleteConfirmProduct.usedInEvents.map(ev => <li key={ev.id}>{ev.name}</li>)}
+                </ul>
+              </div>
+            )}
             <div className="row">
-              <button className="btn-primary" style={{ background: '#dc2626' }} onClick={() => remove(deleteConfirmProduct.id)}>
-                Löschen
+              <button className="btn-primary" style={{ background: '#dc2626' }} onClick={removeProduct}>
+                Trotzdem löschen
               </button>
               <button className="btn-secondary" onClick={() => setDeleteConfirmProduct(null)}>
                 Abbrechen

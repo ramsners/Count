@@ -58,6 +58,12 @@ export async function updateProduct(product) {
   throwIfError(result, 'updateProduct');
 }
 
+export async function getEventsUsingProduct(productId) {
+  const result = await supabase.from('events').select('id, name').contains('product_ids', [productId]);
+  throwIfError(result, 'getEventsUsingProduct');
+  return result.data.map(mapEvent);
+}
+
 export async function deleteProduct(id) {
   const result = await supabase.from('products').delete().eq('id', id);
   throwIfError(result, 'deleteProduct');
