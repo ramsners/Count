@@ -105,9 +105,9 @@ export default function Correction() {
       });
       await updateSession({ ...session, entries: updatedEntries });
       if (code) {
-        navigate(`/team/${code}/summary/${sessionId}`);
+        navigate(`/team/${code}/summary/${sessionId}?corrected=1`);
       } else {
-        navigate(`/summary/${sessionId}`);
+        navigate(`/summary/${sessionId}?corrected=1`);
       }
     } catch (err) {
       alert('Fehler beim Speichern: ' + err.message);

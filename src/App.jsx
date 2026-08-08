@@ -6,6 +6,7 @@ import Events from './pages/Events';
 import EventDetail from './pages/EventDetail';
 import DaySummary from './pages/DaySummary';
 import Tagesabschluss from './pages/Tagesabschluss';
+import Auswertung from './pages/Auswertung';
 import Counting from './pages/Counting';
 import Summary from './pages/Summary';
 import Correction from './pages/Correction';
@@ -24,6 +25,7 @@ function Nav() {
     <nav className="nav">
       <Link to="/events">Veranstaltungen</Link>
       <Link to="/products">Produkte</Link>
+      <Link to="/auswertung">Auswertung</Link>
       <button className="btn-link nav-signout" onClick={signOut} style={{ marginLeft: 'auto' }}>
         Abmelden
       </button>
@@ -37,6 +39,7 @@ function OwnerApp() {
       <Route path="/" element={<Events />} />
       <Route path="/events" element={<Events />} />
       <Route path="/products" element={<Products />} />
+      <Route path="/auswertung" element={<Auswertung />} />
       <Route path="/event/:eventId" element={<EventDetail />} />
       <Route path="/event/:eventId/day/:dateStr" element={<DaySummary />} />
       <Route path="/event/:eventId/day/:dateStr/abschluss" element={<Tagesabschluss />} />

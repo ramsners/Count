@@ -25,6 +25,7 @@ export default function Counting() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lockError, setLockError] = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     load();
@@ -39,8 +40,8 @@ export default function Counting() {
     const allProducts = await getAllProducts();
     const fr = await getFridgeById(Number(fridgeId));
     setFridge(fr);
-    // Lock setzen
-    const lockName = navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC';
+    // Lock setzen — gespeicherter Name hat Vorrang vor User-Agent-Fallback
+    const lockName = localStorage.getItem('festwerk-user-name') || (navigator.userAgent.includes('Mobile') ? 'Handy' : 'PC');
     const locked = await lockFridge(Number(fridgeId), fr.eventId, lockName);
     if (!locked) {
       const existingLock = await getFridgeLock(Number(fridgeId));
@@ -136,7 +137,7 @@ export default function Counting() {
     if (step < products.length - 1) {
       setStep(step + 1);
     } else {
-      finishCounting();
+      setConfirming(true); // Bestätigungsübersicht anzeigen
     }
   }
 
@@ -175,6 +176,45 @@ export default function Counting() {
     } else {
       navigate(`/summary/${id}`);
     }
+  }
+
+  // Bestätigungsübersicht vor dem Speichern
+  if (confirming) {
+    const summary = products.map((p) => ({
+      name: p.name,
+      total: computeTotal(entries[p.id]?.loose, entries[p.id]?.gebindeCounts, p),
+    }));
+    return (
+      <div className="page">
+        <div className="counting-header">
+          <span className="muted">{fridge.label} — {event.name}</span>
+          <span className="counting-type-badge">{countType}</span>
+        </div>
+        <h2>Zählung prüfen</h2>
+        <p className="muted">Alle Produkte gezählt? Jetzt speichern oder zurück zur Korrektur.</p>
+        <div className="card">
+          <table className="summary-table">
+            <thead><tr><th>Produkt</th><th style={{ textAlign: 'right' }}>Gezählt</th></tr></thead>
+            <tbody>
+              {summary.map((s) => (
+                <tr key={s.name}>
+                  <td>{s.name}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{s.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="counting-nav">
+          <button className="btn-secondary big" onClick={() => setConfirming(false)}>
+            ← Zurück
+          </button>
+          <button className="btn-primary big" onClick={finishCounting} disabled={saving}>
+            {saving ? 'Speichert...' : 'Speichern ✓'}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

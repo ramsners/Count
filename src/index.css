@@ -458,3 +458,11 @@ h2 {
     font-size: 1.35rem;
   }
 }
+
+@media print {
+  .nav, .back-link, .btn-primary, .btn-secondary, .btn-link, .action-nav {
+    display: none !important;
+  }
+  body { background: #fff; }
+  .card { box-shadow: none; border: 1px solid #ddd; }
+}

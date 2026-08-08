@@ -104,7 +104,7 @@ export default function Tagesabschluss() {
       <h1>Tagesabschluss</h1>
       <p className="muted">{event.name} — {displayDate}</p>
 
-      <div className="row" style={{ marginBottom: '1rem' }}>
+      <div className="row" style={{ marginBottom: '0.75rem' }}>
         <button className="btn-secondary" style={{ flex: 1 }} onClick={() => navigate(`/event/${eventId}/day/${prevDate}/abschluss`)} disabled={!prevDate}>
           ← Vortag
         </button>
@@ -112,6 +112,9 @@ export default function Tagesabschluss() {
           Nächster Tag →
         </button>
       </div>
+      <button className="btn-secondary" style={{ width: '100%', marginBottom: '1rem' }} onClick={() => window.print()}>
+        Drucken / PDF speichern
+      </button>
 
       {/* Gesamtübersicht */}
       {totalRows.length > 0 && (

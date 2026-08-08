@@ -10,16 +10,20 @@ function localDateStr(ts) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const NAME_KEY = 'festwerk-user-name';
+
 export default function TeamAccess() {
   const { code } = useParams();
   const navigate = useNavigate();
-  const [state, setState] = useState('loading'); // loading | invalid | valid
+  const [state, setState] = useState('loading'); // loading | invalid | valid | name-entry
   const [event, setEvent] = useState(null);
   const [eventId, setEventId] = useState(null);
   const [validUntil, setValidUntil] = useState(null);
   const [fridges, setFridges] = useState([]);
   const [todayStatus, setTodayStatus] = useState({}); // {fridgeId: {hasAnfang, hasEnd}}
   const [fridgeLocks, setFridgeLocks] = useState({}); // {fridgeId: lockInfo|null}
+  const [userName, setUserName] = useState(() => localStorage.getItem(NAME_KEY) || '');
+  const [nameInput, setNameInput] = useState('');
 
   useEffect(() => {
     validate();
@@ -83,10 +87,20 @@ export default function TeamAccess() {
       const fr = await getFridgesForEvent(result.eventId);
       setFridges(fr);
       await refreshStatusAndLocks(fr);
-      setState('valid');
+      // Name abfragen wenn noch keiner gespeichert
+      const savedName = localStorage.getItem(NAME_KEY);
+      setState(savedName ? 'valid' : 'name-entry');
     } catch {
       setState('invalid');
     }
+  }
+
+  function saveName() {
+    const n = nameInput.trim();
+    if (!n) return;
+    localStorage.setItem(NAME_KEY, n);
+    setUserName(n);
+    setState('valid');
   }
 
   if (state === 'loading') return <div className="page">Code wird geprüft...</div>;
@@ -102,11 +116,40 @@ export default function TeamAccess() {
     );
   }
 
+  if (state === 'name-entry') {
+    return (
+      <div className="page">
+        <h1>{event?.name}</h1>
+        <div className="card">
+          <h2>Wie heißt du?</h2>
+          <p className="muted">Dein Name erscheint wenn du eine Zählung sperrst, damit andere wissen wer gerade zählt.</p>
+          <input
+            className="input"
+            placeholder="Dein Name, z.B. Anna"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && saveName()}
+            autoFocus
+          />
+          <button className="btn-primary" onClick={saveName} disabled={!nameInput.trim()}>
+            Los geht's →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <h1>{event.name}</h1>
       <p className="muted">
         Teamzugang — gültig bis {validUntil ? new Date(validUntil).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '–'}
+      </p>
+      <p className="muted" style={{ fontSize: '0.85rem' }}>
+        Eingeloggt als: <strong>{userName}</strong>
+        <button className="btn-link" style={{ marginLeft: 8, fontSize: '0.8rem' }} onClick={() => { setNameInput(userName); setState('name-entry'); }}>
+          ändern
+        </button>
       </p>
       <div className="card">
         <h2>Kühlgeräte</h2>

@@ -28,6 +28,7 @@ export default function Summary() {
   const navigate = useNavigate();
   const isTeamRoute = location.pathname.startsWith('/team/');
   const teamCode = isTeamRoute ? location.pathname.split('/')[2] : null;
+  const isCorrected = new URLSearchParams(location.search).get('corrected') === '1';
 
   const [session, setSession] = useState(null);
   const [event, setEvent] = useState(null);
@@ -168,7 +169,7 @@ export default function Summary() {
   return (
     <div className="page">
       <div style={{ background: '#dcfce7', border: '1px solid #16a34a', borderRadius: 10, padding: '12px 16px', marginBottom: '0.5rem', color: '#15803d', fontWeight: 600 }}>
-        ✓ Zählung gespeichert — {formatDateTime(session.timestamp)}
+        {isCorrected ? '✓ Korrektur gespeichert' : `✓ Zählung gespeichert — ${formatDateTime(session.timestamp)}`}
       </div>
       <h1>
         {fridge.label} — {session.label}
@@ -221,14 +222,27 @@ export default function Summary() {
 
       {diffWarnings.length > 0 && (
         <div className="card warning-card">
-          <h2>⚠ Differenz zur vorherigen Zählung</h2>
-          <ul>
+          <h2>⚠ Nachtschwund erkannt</h2>
+          <p className="muted" style={{ marginBottom: '0.5rem' }}>
+            Diese Produkte haben weniger als beim letzten Endstand — bitte prüfen und ggf. korrigieren.
+          </p>
+          <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
             {diffWarnings.map((w) => (
-              <li key={w.productName}>
-                {w.productName}: {w.diff}
+              <li key={w.productName} style={{ marginBottom: '0.25rem' }}>
+                <strong>{w.productName}:</strong> {Math.abs(w.diff)} Stk. weniger als Endstand gestern
               </li>
             ))}
           </ul>
+          <button
+            className="btn-secondary"
+            style={{ marginTop: '0.75rem' }}
+            onClick={() => isTeamRoute
+              ? navigate(`/team/${teamCode}/correct/${sessionId}/choose`)
+              : navigate(`/correct/${sessionId}/choose`)
+            }
+          >
+            Zählung korrigieren
+          </button>
         </div>
       )}
 

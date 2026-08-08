@@ -253,6 +253,16 @@ export async function getSessionDatesForEvent(eventId) {
   return dates.sort();
 }
 
+export async function getAllSessionsForEvent(eventId) {
+  const result = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('timestamp');
+  throwIfError(result, 'getAllSessionsForEvent');
+  return result.data.map(mapSession);
+}
+
 export async function getSessionsForEventOnDate(eventId, dateStr) {
   const from = new Date(dateStr + 'T00:00:00').getTime();
   const to = new Date(dateStr + 'T23:59:59.999').getTime();
