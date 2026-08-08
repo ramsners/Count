@@ -7,6 +7,7 @@ import {
   getSessionsForFridge,
   getFridgeById,
   getSessionsForFridgeOnDate,
+  getSessionHistory,
 } from '../lib/db';
 import { formatDateTime } from '../lib/units';
 import {
@@ -42,6 +43,7 @@ export default function Summary() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoUploadSuccess, setPhotoUploadSuccess] = useState(false);
   const [showPhotoPrompt, setShowPhotoPrompt] = useState(true);
+  const [history, setHistory] = useState([]);
 
   useEffect(() => {
     load();
@@ -73,8 +75,12 @@ export default function Summary() {
     }
     setNextFridge(found);
 
-    const p = await getSessionPhotos(Number(sessionId));
+    const [p, hist] = await Promise.all([
+      getSessionPhotos(Number(sessionId)),
+      getSessionHistory(Number(sessionId)),
+    ]);
     setPhotos(p);
+    setHistory(hist);
     const lastPhoto = await getLastFridgePhoto(s.fridgeId);
     if (lastPhoto && !p.find((x) => x.id === lastPhoto.id)) {
       setLastFridgePhoto(lastPhoto);
@@ -243,6 +249,33 @@ export default function Summary() {
           >
             Zählung korrigieren
           </button>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="card">
+          <h2>Korrektur-Historie</h2>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {history.map((h) => (
+              <li key={h.id} style={{ borderBottom: '1px solid #eee', paddingBottom: '0.5rem' }}>
+                <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: '0.25rem' }}>
+                  {new Date(h.changedAt).toLocaleString('de-AT')}
+                  {h.changedByName && <span> — <strong>{h.changedByName}</strong></span>}
+                </div>
+                <div style={{ display: 'flex', gap: '1rem', fontSize: '0.85rem', flexWrap: 'wrap' }}>
+                  {h.entriesAfter.map((after) => {
+                    const before = h.entriesBefore.find((b) => b.productId === after.productId);
+                    if (!before || before.total === after.total) return null;
+                    return (
+                      <span key={after.productId}>
+                        {after.productName}: <span style={{ color: '#dc2626' }}>{before.total}</span> → <span style={{ color: '#16a34a' }}>{after.total}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

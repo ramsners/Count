@@ -89,9 +89,8 @@ export default function EventDetail() {
   async function createDayCode() {
     setQrLoading(true);
     try {
-      const today = new Date();
-      const validFrom = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-      const validUntil = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+      const validFrom = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+      const validUntil = new Date(new Date().setHours(23, 59, 59, 999)).toISOString();
       const code = await generateAccessCode(Number(eventId), validFrom, validUntil);
       const appUrl = window.location.origin + window.location.pathname;
       const accessUrl = `${appUrl}#/team/${code}`;

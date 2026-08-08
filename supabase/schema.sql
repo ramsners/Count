@@ -91,3 +91,20 @@ create policy "temp_open_access_codes" on event_access_codes for all using (true
 
 -- Storage Bucket für Fotos (separat im Supabase Dashboard anlegen unter Storage → New Bucket)
 -- Bucket-Name: "session-photos", Public: false
+
+-- ============================================================
+-- MIGRATION: Audit-Trail für Session-Korrekturen
+-- Supabase SQL-Editor → New Query → ausführen
+-- ============================================================
+create table if not exists session_history (
+  id bigint generated always as identity primary key,
+  session_id bigint references sessions(id) on delete cascade,
+  entries_before jsonb not null,
+  entries_after jsonb not null,
+  changed_at timestamptz not null default now(),
+  changed_by_name text
+);
+create index if not exists session_history_session_id_idx on session_history(session_id);
+
+alter table session_history enable row level security;
+create policy "temp_open_session_history" on session_history for all using (true) with check (true);

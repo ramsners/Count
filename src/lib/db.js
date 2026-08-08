@@ -180,11 +180,41 @@ export async function addSession(session) {
 }
 
 export async function updateSession(session) {
+  // Audit-Trail: alten Stand holen und in session_history schreiben
+  try {
+    const before = await supabase.from('sessions').select('entries').eq('id', session.id).single();
+    if (!before.error && before.data) {
+      const changedByName = localStorage.getItem('festwerk-user-name') || null;
+      await supabase.from('session_history').insert({
+        session_id: session.id,
+        entries_before: before.data.entries,
+        entries_after: session.entries,
+        changed_by_name: changedByName,
+      });
+    }
+  } catch { /* Tabelle noch nicht angelegt — kein Fehler, nur ignorieren */ }
+
   const result = await supabase
     .from('sessions')
     .update({ entries: session.entries, label: session.label })
     .eq('id', session.id);
   throwIfError(result, 'updateSession');
+}
+
+export async function getSessionHistory(sessionId) {
+  const result = await supabase
+    .from('session_history')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('changed_at', { ascending: false });
+  if (result.error) return []; // Tabelle noch nicht angelegt
+  return result.data.map((r) => ({
+    id: r.id,
+    entriesBefore: r.entries_before,
+    entriesAfter: r.entries_after,
+    changedAt: r.changed_at,
+    changedByName: r.changed_by_name,
+  }));
 }
 
 export async function getSessionsForFridge(fridgeId) {
