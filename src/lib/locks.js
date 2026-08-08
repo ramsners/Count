@@ -4,7 +4,12 @@ import supabase from './supabase';
 export function getDeviceId() {
   let id = localStorage.getItem('festwerk-device-id');
   if (!id) {
-    id = crypto.randomUUID();
+    id = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
     localStorage.setItem('festwerk-device-id', id);
   }
   return id;
